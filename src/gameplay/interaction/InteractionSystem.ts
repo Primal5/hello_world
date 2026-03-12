@@ -1,6 +1,7 @@
-import { GAME_CONFIG } from '../../core/Config';
+﻿import { GAME_CONFIG } from '../../core/Config';
 import { useGameStore } from '../../ui/store/gameStore';
 import { useUiStore } from '../../ui/store/uiStore';
+import { DISPLAY_TEXT } from '../../text/DisplayText';
 import type { DialogueSystem } from '../dialogue/DialogueSystem';
 import type { Player } from '../player/Player';
 import type { Interactable } from './Interactable';
@@ -33,7 +34,7 @@ export class InteractionSystem {
     }
 
     const canInteract = interactable.canInteract(this.context);
-    setInteractionPrompt(canInteract ? `Appuyez sur E pour ${interactable.label}` : null);
+    setInteractionPrompt(canInteract ? DISPLAY_TEXT.ui.prompt.interact(interactable.label) : null);
   }
 
   tryInteract(): void {

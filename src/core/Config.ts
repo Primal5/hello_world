@@ -1,6 +1,7 @@
 export const GAME_CONFIG = {
   player: {
     height: 1.7,
+    radius: 0.35,
     moveSpeed: 5,
     jumpVelocity: 6,
     gravity: 16,

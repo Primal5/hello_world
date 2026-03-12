@@ -12,14 +12,26 @@ export class RaycastInteractor {
       true
     );
 
-    const match = hits.find((hit) => hit.distance <= maxDistance);
-    if (!match) return null;
+    for (const hit of hits) {
+      if (hit.distance > maxDistance) continue;
 
-    const owner = interactables.find(
-      (interactable) =>
-        interactable.object3D === match.object || interactable.object3D.children.includes(match.object)
-    );
+      const owner = interactables.find((interactable) => this.belongsTo(hit.object, interactable.object3D));
+      if (owner) {
+        return owner;
+      }
+    }
 
-    return owner ?? null;
+    return null;
+  }
+
+  private belongsTo(object: THREE.Object3D, candidateRoot: THREE.Object3D): boolean {
+    let current: THREE.Object3D | null = object;
+    while (current) {
+      if (current === candidateRoot) {
+        return true;
+      }
+      current = current.parent;
+    }
+    return false;
   }
 }

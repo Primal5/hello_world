@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ENABLE_SHADOWS } from './lighting';
 
 export class Renderer {
   readonly instance: THREE.WebGLRenderer;
@@ -7,7 +8,10 @@ export class Renderer {
     this.instance = new THREE.WebGLRenderer({ antialias: true });
     this.instance.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.instance.setSize(container.clientWidth, container.clientHeight);
-    this.instance.shadowMap.enabled = true;
+    this.instance.shadowMap.enabled = ENABLE_SHADOWS;
+    this.instance.outputColorSpace = THREE.SRGBColorSpace;
+    this.instance.toneMapping = THREE.ACESFilmicToneMapping;
+    this.instance.toneMappingExposure = 1;
     container.appendChild(this.instance.domElement);
   }
 

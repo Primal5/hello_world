@@ -1,12 +1,12 @@
-import * as THREE from 'three';
+﻿import * as THREE from 'three';
 import { GAME_CONFIG } from '../core/Config';
 import { InputManager } from '../core/InputManager';
 import type { Player } from '../gameplay/player/Player';
 import { CollisionWorld } from './CollisionWorld';
 
 export class FirstPersonController {
-  private yaw = 0;
-  private pitch = 0;
+  private yaw: number;
+  private pitch: number;
   private readonly up = new THREE.Vector3(0, 1, 0);
   private pointerLocked = false;
 
@@ -15,10 +15,20 @@ export class FirstPersonController {
     private readonly player: Player,
     private readonly input: InputManager,
     private readonly collisionWorld: CollisionWorld,
-    private readonly canvas: HTMLCanvasElement
+    private readonly canvas: HTMLCanvasElement,
+    initialYaw = 0,
+    initialPitch = 0
   ) {
+    this.yaw = initialYaw;
+    this.pitch = initialPitch;
     this.bindPointerLock();
     this.camera.rotation.order = 'YXZ';
+  }
+
+  dispose(): void {
+    this.canvas.removeEventListener('click', this.onCanvasClick);
+    document.removeEventListener('pointerlockchange', this.onPointerLockChange);
+    document.removeEventListener('mousemove', this.onMouseMove);
   }
 
   update(delta: number): void {
@@ -41,7 +51,8 @@ export class FirstPersonController {
         .addScaledVector(right, moveDir.x)
         .multiplyScalar(GAME_CONFIG.player.moveSpeed * delta);
 
-      this.player.position.add(movement);
+      const nextPosition = this.collisionWorld.move(this.player.position, movement, GAME_CONFIG.player.radius, GAME_CONFIG.player.height);
+      this.player.position.copy(nextPosition);
     }
 
     if (this.input.isPressed('Space') && this.player.isGrounded) {
@@ -52,11 +63,23 @@ export class FirstPersonController {
     this.player.velocity.y -= GAME_CONFIG.player.gravity * delta;
     this.player.position.y += this.player.velocity.y * delta;
 
-    const clamped = this.collisionWorld.clampToGround(GAME_CONFIG.player.height, this.player.position.y);
+    const clamped = this.collisionWorld.clampVertical(
+      this.player.position.y,
+      GAME_CONFIG.player.height,
+      this.player.position.x,
+      this.player.position.z,
+      GAME_CONFIG.player.radius
+    );
     this.player.position.y = clamped.y;
+    if (clamped.hitCeiling && this.player.velocity.y > 0) {
+      this.player.velocity.y = 0;
+    }
+
     if (clamped.grounded) {
       this.player.velocity.y = 0;
       this.player.isGrounded = true;
+    } else if (!clamped.hitCeiling) {
+      this.player.isGrounded = false;
     }
 
     this.camera.position.copy(this.player.position);
@@ -65,19 +88,25 @@ export class FirstPersonController {
   }
 
   private bindPointerLock(): void {
-    this.canvas.addEventListener('click', () => {
-      this.canvas.requestPointerLock();
-    });
-
-    document.addEventListener('pointerlockchange', () => {
-      this.pointerLocked = document.pointerLockElement === this.canvas;
-    });
-
-    document.addEventListener('mousemove', (event) => {
-      if (!this.pointerLocked) return;
-      this.yaw -= event.movementX * 0.002;
-      this.pitch -= event.movementY * 0.002;
-      this.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.pitch));
-    });
+    this.canvas.addEventListener('click', this.onCanvasClick);
+    document.addEventListener('pointerlockchange', this.onPointerLockChange);
+    document.addEventListener('mousemove', this.onMouseMove);
   }
+
+  private readonly onCanvasClick = (): void => {
+    this.canvas.requestPointerLock();
+  };
+
+  private readonly onPointerLockChange = (): void => {
+    this.pointerLocked = document.pointerLockElement === this.canvas;
+  };
+
+  private readonly onMouseMove = (event: MouseEvent): void => {
+    if (!this.pointerLocked) return;
+    this.yaw -= event.movementX * 0.002;
+    this.pitch -= event.movementY * 0.002;
+    this.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.pitch));
+  };
 }
+
+

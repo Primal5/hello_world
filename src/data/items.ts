@@ -1,9 +1,10 @@
-import type { Item } from '../gameplay/items/Item';
+﻿import { DISPLAY_TEXT } from '../text/DisplayText';
 
-export const itemData: Item[] = [
+export const itemData = [
   {
     id: 'rusty_key',
-    name: 'Clé rouillée',
-    description: 'Une vieille clé qui semble ouvrir une porte ancienne.'
+    name: DISPLAY_TEXT.items.rustyKey.name,
+    description: DISPLAY_TEXT.items.rustyKey.description,
+    category: DISPLAY_TEXT.items.rustyKey.category
   }
-];
+] as const;
