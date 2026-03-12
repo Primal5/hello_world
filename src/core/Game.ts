@@ -48,7 +48,10 @@ export class Game {
     const dialogueSystem = new DialogueSystem();
     const levelLoader = new LevelLoader(
       this.world.scene,
-      new AssetLoader(),
+      new AssetLoader({
+        maxAnisotropy: this.renderer.instance.capabilities.getMaxAnisotropy(),
+        isWebGL2: this.renderer.instance.capabilities.isWebGL2
+      }),
       itemDb,
       dialogueSystem,
       this.collisionWorld
