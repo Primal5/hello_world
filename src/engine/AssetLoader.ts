@@ -12,6 +12,8 @@ export class AssetLoader {
   private readonly gltfLoader = new GLTFLoader();
   private readonly modelCache = new Map<string, Promise<CachedModel>>();
 
+  constructor(private readonly maxAnisotropy = 1) {}
+
   async loadModel(path: string): Promise<THREE.Object3D> {
     try {
       const cached = await this.loadAndCache(path);
@@ -65,14 +67,51 @@ export class AssetLoader {
   private prepareMaterial(material: THREE.Material): void {
     const standardMaterial = material as THREE.MeshStandardMaterial;
 
-    if (standardMaterial.map) {
-      standardMaterial.map.colorSpace = THREE.SRGBColorSpace;
-    }
-
-    if (standardMaterial.emissiveMap) {
-      standardMaterial.emissiveMap.colorSpace = THREE.SRGBColorSpace;
-    }
+    this.prepareTexture(standardMaterial.map, { colorTexture: true });
+    this.prepareTexture(standardMaterial.emissiveMap, { colorTexture: true });
+    this.prepareTexture(standardMaterial.normalMap);
+    this.prepareTexture(standardMaterial.metalnessMap);
+    this.prepareTexture(standardMaterial.roughnessMap);
+    this.prepareTexture(standardMaterial.aoMap);
+    this.prepareTexture(standardMaterial.alphaMap);
+    this.prepareTexture(standardMaterial.bumpMap);
 
     material.needsUpdate = true;
+  }
+
+  private prepareTexture(
+    texture: THREE.Texture | null,
+    options: { colorTexture?: boolean } = {}
+  ): void {
+    if (!texture) {
+      return;
+    }
+
+    if (options.colorTexture) {
+      texture.colorSpace = THREE.SRGBColorSpace;
+    }
+
+    texture.anisotropy = this.maxAnisotropy;
+
+    const image = texture.image as {
+      width?: number;
+      height?: number;
+      videoWidth?: number;
+      videoHeight?: number;
+    } | undefined;
+    const width = image?.width ?? image?.videoWidth;
+    const height = image?.height ?? image?.videoHeight;
+
+    if (!width || !height) {
+      return;
+    }
+
+    const isPowerOfTwo = THREE.MathUtils.isPowerOfTwo(width) && THREE.MathUtils.isPowerOfTwo(height);
+    if (!isPowerOfTwo) {
+      texture.wrapS = THREE.ClampToEdgeWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
+      texture.generateMipmaps = false;
+      texture.minFilter = THREE.LinearFilter;
+    }
   }
 }
