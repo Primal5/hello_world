@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { ENABLE_SHADOWS } from './lighting';
 
 export class SceneManager {
   readonly scene = new THREE.Scene();
@@ -15,7 +14,7 @@ export class SceneManager {
     const ambient = new THREE.AmbientLight(0xffffff, 0.45);
     const sun = new THREE.DirectionalLight(0xffffff, 1);
     sun.position.set(5, 10, 5);
-    sun.castShadow = ENABLE_SHADOWS;
+    sun.castShadow = true;
     this.scene.add(ambient, sun);
   }
 }
