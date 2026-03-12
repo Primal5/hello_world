@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { ENABLE_SHADOWS } from './lighting';
 
 interface CachedModel {
   scene: THREE.Object3D;
@@ -20,8 +21,8 @@ export class AssetLoader {
         new THREE.BoxGeometry(1, 1, 1),
         new THREE.MeshStandardMaterial({ color: '#b56d3b' })
       );
-      fallback.castShadow = true;
-      fallback.receiveShadow = true;
+      fallback.castShadow = ENABLE_SHADOWS;
+      fallback.receiveShadow = ENABLE_SHADOWS;
       return fallback;
     }
   }
@@ -51,8 +52,8 @@ export class AssetLoader {
         return;
       }
 
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
+      mesh.castShadow = ENABLE_SHADOWS;
+      mesh.receiveShadow = ENABLE_SHADOWS;
 
       const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       for (const material of materials) {
