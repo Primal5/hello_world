@@ -8,9 +8,23 @@ interface CachedModel {
   animations: THREE.AnimationClip[];
 }
 
+export interface AssetLoaderOptions {
+  maxAnisotropy?: number;
+  isWebGL2?: boolean;
+}
+
 export class AssetLoader {
   private readonly gltfLoader = new GLTFLoader();
   private readonly modelCache = new Map<string, Promise<CachedModel>>();
+  private readonly maxAnisotropy: number;
+  private readonly isWebGL2: boolean;
+
+  constructor(options: AssetLoaderOptions = {}) {
+    this.maxAnisotropy = Number.isFinite(options.maxAnisotropy)
+      ? Math.max(1, Math.floor(options.maxAnisotropy ?? 1))
+      : 1;
+    this.isWebGL2 = options.isWebGL2 ?? false;
+  }
 
   constructor(private readonly maxAnisotropy = 1) {}
 
