@@ -1,10 +1,12 @@
-import { create } from 'zustand';
+﻿import { create } from 'zustand';
+import { DISPLAY_TEXT } from '../../text/DisplayText';
 
 interface UiState {
   isInventoryOpen: boolean;
   interactionPrompt: string | null;
   eventLog: string[];
   toggleInventory: () => void;
+  closeInventory: () => void;
   setInteractionPrompt: (prompt: string | null) => void;
   addLog: (message: string) => void;
 }
@@ -12,8 +14,9 @@ interface UiState {
 export const useUiStore = create<UiState>((set) => ({
   isInventoryOpen: false,
   interactionPrompt: null,
-  eventLog: ['Bienvenue dans la démo FPS/RPG.'],
+  eventLog: [DISPLAY_TEXT.ui.log.welcome],
   toggleInventory: () => set((state) => ({ isInventoryOpen: !state.isInventoryOpen })),
+  closeInventory: () => set({ isInventoryOpen: false }),
   setInteractionPrompt: (interactionPrompt) => set({ interactionPrompt }),
   addLog: (message) =>
     set((state) => ({

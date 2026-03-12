@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+﻿import * as THREE from 'three';
 import { GameLoop } from './GameLoop';
 import { InputManager } from './InputManager';
 import { CollisionWorld } from '../engine/CollisionWorld';
@@ -14,17 +14,20 @@ import { DialogueSystem } from '../gameplay/dialogue/DialogueSystem';
 import { useGameStore } from '../ui/store/gameStore';
 import { useUiStore } from '../ui/store/uiStore';
 import { AssetLoader } from '../engine/AssetLoader';
+import { DUNGEON_CONFIG } from '../engine/DungeonGenerator';
+import { DISPLAY_TEXT } from '../text/DisplayText';
 
 export class Game {
   private readonly renderer: Renderer;
   private readonly world: World;
   private readonly input = new InputManager();
-  private readonly player = new Player(new THREE.Vector3(0, 0.01, 2));
+  private readonly player = new Player(DUNGEON_CONFIG.startPosition);
   private readonly collisionWorld = new CollisionWorld();
   private readonly loop: GameLoop;
   private readonly raycastInteractor = new RaycastInteractor();
   private controller: FirstPersonController;
   private interactionSystem?: InteractionSystem;
+  private northYaw = 0;
 
   constructor(private readonly container: HTMLElement) {
     this.renderer = new Renderer(container);
@@ -34,7 +37,8 @@ export class Game {
       this.player,
       this.input,
       this.collisionWorld,
-      this.renderer.instance.domElement
+      this.renderer.instance.domElement,
+      DUNGEON_CONFIG.startYaw
     );
     this.loop = new GameLoop((delta) => this.update(delta));
   }
@@ -42,7 +46,13 @@ export class Game {
   async init(): Promise<void> {
     const itemDb = new ItemDatabase();
     const dialogueSystem = new DialogueSystem();
-    const levelLoader = new LevelLoader(this.world.scene, new AssetLoader(), itemDb, dialogueSystem);
+    const levelLoader = new LevelLoader(
+      this.world.scene,
+      new AssetLoader(),
+      itemDb,
+      dialogueSystem,
+      this.collisionWorld
+    );
 
     const context = {
       player: this.player,
@@ -54,15 +64,22 @@ export class Game {
     this.interactionSystem = new InteractionSystem(interactables, context);
 
     useGameStore.getState().setInventory(this.player.inventory.getAll());
+    useGameStore.getState().setMaxHealth(this.player.stats.health);
+    useGameStore.getState().setHealth(this.player.stats.health);
+    this.northYaw = this.world.camera.rotation.y + Math.PI;
+    useGameStore.getState().setCompassHeading(0);
+    useUiStore.getState().addLog(DISPLAY_TEXT.ui.prompt.openInventory);
 
     window.addEventListener('resize', this.onResize);
     window.addEventListener('keydown', this.onKeyDown);
+    this.player.isGrounded = true;
     this.loop.start();
   }
 
   dispose(): void {
     this.loop.stop();
     this.input.dispose();
+    this.controller.dispose();
     this.renderer.dispose();
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('keydown', this.onKeyDown);
@@ -80,6 +97,12 @@ export class Game {
       this.interactionSystem.setFocused(focused);
     }
 
+    const heading = THREE.MathUtils.euclideanModulo(
+      THREE.MathUtils.radToDeg(this.world.camera.rotation.y - this.northYaw),
+      360
+    );
+    useGameStore.getState().setCompassHeading(heading);
+
     this.renderer.render(this.world.scene, this.world.camera);
   }
 
@@ -91,12 +114,23 @@ export class Game {
   };
 
   private onKeyDown = (event: KeyboardEvent): void => {
+    if (event.repeat) {
+      return;
+    }
+
     if (event.code === 'KeyE') {
       this.interactionSystem?.tryInteract();
+      return;
     }
 
     if (event.code === 'KeyI') {
+      event.preventDefault();
       useUiStore.getState().toggleInventory();
+      return;
+    }
+
+    if (event.code === 'Escape') {
+      useUiStore.getState().closeInventory();
     }
   };
 }

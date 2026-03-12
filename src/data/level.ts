@@ -7,7 +7,8 @@ export interface LevelEntity {
 }
 
 export const baseLevel: LevelEntity[] = [
-  { id: 'starter_chest', type: 'chest', position: new THREE.Vector3(-2, 0.5, -4) },
-  { id: 'old_door', type: 'door', position: new THREE.Vector3(0, 1, -8) },
-  { id: 'village_npc', type: 'npc', position: new THREE.Vector3(2, 1, -4) }
+  { id: 'starter_chest', type: 'chest', position: new THREE.Vector3(-2, 0, -4) },
+  { id: 'old_door', type: 'door', position: new THREE.Vector3(0, 0, -8) },
+  { id: 'village_npc', type: 'npc', position: new THREE.Vector3(2, 0, -4) }
 ];
+
