@@ -26,6 +26,8 @@ export class AssetLoader {
     this.isWebGL2 = options.isWebGL2 ?? false;
   }
 
+  constructor(private readonly maxAnisotropy = 1) {}
+
   async loadModel(path: string): Promise<THREE.Object3D> {
     try {
       const cached = await this.loadAndCache(path);
@@ -119,7 +121,7 @@ export class AssetLoader {
     }
 
     const isPowerOfTwo = THREE.MathUtils.isPowerOfTwo(width) && THREE.MathUtils.isPowerOfTwo(height);
-    if (!isPowerOfTwo && !this.isWebGL2) {
+    if (!isPowerOfTwo) {
       texture.wrapS = THREE.ClampToEdgeWrapping;
       texture.wrapT = THREE.ClampToEdgeWrapping;
       texture.generateMipmaps = false;
