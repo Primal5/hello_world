@@ -18,14 +18,17 @@ export class AssetLoader {
   private readonly maxAnisotropy: number;
   private readonly isWebGL2: boolean;
 
-  constructor(options: AssetLoaderOptions = {}) {
-    this.maxAnisotropy = Number.isFinite(options.maxAnisotropy)
-      ? Math.max(1, Math.floor(options.maxAnisotropy ?? 1))
-      : 1;
-    this.isWebGL2 = options.isWebGL2 ?? false;
-  }
+  constructor(options: AssetLoaderOptions | number = {}) {
+    const normalizedOptions =
+      typeof options === 'number'
+        ? { maxAnisotropy: options }
+        : options;
 
-  constructor(private readonly maxAnisotropy = 1) {}
+    this.maxAnisotropy = Number.isFinite(normalizedOptions.maxAnisotropy)
+      ? Math.max(1, Math.floor(normalizedOptions.maxAnisotropy ?? 1))
+      : 1;
+    this.isWebGL2 = normalizedOptions.isWebGL2 ?? false;
+  }
 
   async loadModel(path: string): Promise<THREE.Object3D> {
     try {
