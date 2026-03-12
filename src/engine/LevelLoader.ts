@@ -4,6 +4,7 @@ import type { Interactable } from '../gameplay/interaction/Interactable';
 import type { InteractionContext } from '../gameplay/interaction/InteractionSystem';
 import type { ItemDatabase } from '../gameplay/items/ItemDatabase';
 import { AssetLoader } from './AssetLoader';
+import { ENABLE_SHADOWS } from './lighting';
 import { CollisionWorld } from './CollisionWorld';
 import {
   DUNGEON_CONFIG,
@@ -150,7 +151,7 @@ export class LevelLoader {
     );
     floor.rotation.x = -Math.PI / 2;
     floor.position.copy(floorCenter);
-    floor.receiveShadow = true;
+    floor.receiveShadow = ENABLE_SHADOWS;
     this.scene.add(floor);
 
     this.addExteriorGroundRing(exteriorGroundCenter, exteriorGroundSize, size);
@@ -161,7 +162,7 @@ export class LevelLoader {
     );
     ceiling.rotation.x = Math.PI / 2;
     ceiling.position.copy(ceilingCenter);
-    ceiling.receiveShadow = true;
+    ceiling.receiveShadow = ENABLE_SHADOWS;
     this.scene.add(ceiling);
   }
 
@@ -198,7 +199,7 @@ export class LevelLoader {
       ground.rotation.x = -Math.PI / 2;
       ground.position.copy(center).add(section.offset);
       ground.position.y = center.y;
-      ground.receiveShadow = true;
+      ground.receiveShadow = ENABLE_SHADOWS;
       this.scene.add(ground);
     }
   }
@@ -253,8 +254,8 @@ export class LevelLoader {
         this.createWallMaterial(rendered.size)
       );
       wall.position.copy(rendered.center);
-      wall.castShadow = true;
-      wall.receiveShadow = true;
+      wall.castShadow = ENABLE_SHADOWS;
+      wall.receiveShadow = ENABLE_SHADOWS;
       this.scene.add(wall);
       this.collisionWorld.setObstacle(segment.id, rendered.center, rendered.size);
     }
@@ -528,8 +529,8 @@ export class LevelLoader {
     root.traverse((child) => {
       const mesh = child as THREE.Mesh;
       if (mesh.isMesh) {
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
+        mesh.castShadow = ENABLE_SHADOWS;
+        mesh.receiveShadow = ENABLE_SHADOWS;
       }
     });
   }
