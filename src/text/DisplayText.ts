@@ -5,7 +5,7 @@ export const DISPLAY_TEXT = {
       equipment: 'Équipement',
       title: 'Inventaire',
       emptyBag: 'Votre sac est vide.',
-      emptyHint: "Fouillez le coffre près de l'entrée pour récupérer la clé.",
+      emptyHint: "Trouvez les coffres pour récupérer les clés de progression.",
       closeHint: 'Appuyez sur i pour fermer.',
       itemCount: (count: number) => `${count} objet${count > 1 ? 's' : ''}`
     },
@@ -49,14 +49,24 @@ export const DISPLAY_TEXT = {
     }
   },
   items: {
-    rustyKey: {
-      name: 'Clé rouillée',
-      description: 'Une vieille clé qui semble ouvrir une porte ancienne.',
+    bronzeKey: {
+      name: 'Clé de bronze',
+      description: 'Ouvre la porte vers la zone bronze.',
+      category: 'Objet de quête'
+    },
+    silverKey: {
+      name: "Clé d'argent",
+      description: 'Ouvre la porte vers la zone argent.',
+      category: 'Objet de quête'
+    },
+    goldKey: {
+      name: "Clé d'or",
+      description: 'Ouvre la porte vers la zone or.',
       category: 'Objet de quête'
     }
   },
   dialogues: {
-    npcGuardHint: (itemName: string) => `${itemName} ouvre la vieille porte.`
+    npcGuardHint: (itemName: string) => `${itemName} ouvre la prochaine porte verrouillée.`
   }
 } as const;
 

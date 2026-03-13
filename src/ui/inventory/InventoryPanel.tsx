@@ -39,7 +39,7 @@ export function InventoryPanel(): JSX.Element | null {
                   aria-hidden="true"
                   title={rarityTheme.label}
                 >
-                  {item.id === 'rusty_key' ? 'K' : '\u2022'}
+                  {item.id.endsWith('_key') ? 'K' : '\u2022'}
                 </div>
                 <div className="inventory-panel__body">
                   <div className="inventory-panel__meta">
