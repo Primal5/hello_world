@@ -1,4 +1,4 @@
-﻿import * as THREE from 'three';
+import * as THREE from 'three';
 import type { DialogueSystem } from '../gameplay/dialogue/DialogueSystem';
 import type { Interactable } from '../gameplay/interaction/Interactable';
 import type { InteractionContext } from '../gameplay/interaction/InteractionSystem';
@@ -35,6 +35,8 @@ const DOOR_MODEL_SIZE = {
 
 export class LevelLoader {
   private readonly wallTexture = this.createWallTexture();
+  private readonly animationMixers: THREE.AnimationMixer[] = [];
+  private readonly animationUpdaters: Array<(delta: number) => void> = [];
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -44,20 +46,25 @@ export class LevelLoader {
     private readonly collisionWorld: CollisionWorld
   ) {}
 
+  update(delta: number): void {
+    for (const mixer of this.animationMixers) {
+      mixer.update(delta);
+    }
+
+    for (const updater of this.animationUpdaters) {
+      updater(delta);
+    }
+  }
+
   async load(context: InteractionContext): Promise<Interactable[]> {
     const layout = generateDungeonLayout();
     this.collisionWorld.setCeiling(DUNGEON_CONFIG.ceilingY);
-    const exteriorGroundCenter = layout.floorCenter.clone();
-    const exteriorGroundSize = new THREE.Vector2(layout.floorSize + 30, layout.floorSize + 30);
 
     this.addDungeonShell(
       layout.floorCenter,
       layout.ceilingCenter,
-      layout.floorSize,
-      exteriorGroundCenter,
-      exteriorGroundSize
+      layout.floorSize
     );
-    this.addExteriorBounds(exteriorGroundCenter, exteriorGroundSize);
     this.addWalls(layout.wallSegments);
 
     const interactables: Interactable[] = [];
@@ -71,19 +78,32 @@ export class LevelLoader {
       id: 'starter_chest',
       label: DISPLAY_TEXT.world.chest.interactLabel,
       object3D: chest,
-      canInteract: () => !chestOpened,
+      canInteract: () => true,
       interact: () => {
-        if (chestOpened) return;
+        if (chestOpened) {
+          context.event(DISPLAY_TEXT.world.chest.empty);
+          return;
+        }
 
         chestOpened = true;
         const item = this.itemDb.getById('rusty_key');
         if (item && context.player.inventory.add(item.id)) {
-          context.log(DISPLAY_TEXT.world.chest.obtainedItem(item.name));
+          const message = DISPLAY_TEXT.world.chest.obtainedItem(item.name);
+          const rarityTheme = ItemVisualsService.getRarityTheme(item.rarity);
+          const highlights = [{ text: item.name, color: rarityTheme.color }];
+          context.event({
+            message,
+            highlights
+          });
+          context.journal({
+            message,
+            highlights
+          });
         }
       }
     });
 
-    const npc = await this.loadWithFallback('npc');
+    const { root: npc, greet: greetNpc } = await this.loadNpc();
     this.placeObject(npc, layout.npcPosition);
     this.scene.add(npc);
     interactables.push({
@@ -92,8 +112,18 @@ export class LevelLoader {
       object3D: npc,
       canInteract: () => true,
       interact: () => {
+        greetNpc();
+        const requiredItem = this.itemDb.getById('rusty_key');
         const line = this.dialogueSystem.getLine('npc_guard_hint');
-        context.log(`${DISPLAY_TEXT.world.npc.prefix} : ${line}`);
+        const highlights = requiredItem
+          ? [{
+              text: requiredItem.name,
+              color: ItemVisualsService.getRarityTheme(requiredItem.rarity).color
+            }]
+          : undefined;
+        context.acknowledge(DISPLAY_TEXT.world.npc.prefix, line, () => {
+          context.journal(`${DISPLAY_TEXT.world.npc.prefix} : ${line}`);
+        }, highlights);
       }
     });
 
@@ -112,10 +142,33 @@ export class LevelLoader {
         interact: () => {
           if (!isUnlocked) {
             if (!context.player.inventory.has('rusty_key')) {
-              context.log(doorDefinition.entrance ? DISPLAY_TEXT.world.door.entranceLocked : DISPLAY_TEXT.world.door.locked);
+              if (doorDefinition.entrance) {
+                const requiredItem = this.itemDb.getById('rusty_key');
+                if (requiredItem) {
+                  const rarityTheme = ItemVisualsService.getRarityTheme(requiredItem.rarity);
+                  context.event({
+                    message: DISPLAY_TEXT.world.door.entranceLockedItem(requiredItem.name),
+                    highlights: [{ text: requiredItem.name, color: rarityTheme.color }]
+                  });
+                } else {
+                  context.event(DISPLAY_TEXT.world.door.entranceLocked);
+                }
+              } else {
+                context.event(DISPLAY_TEXT.world.door.locked);
+              }
               return;
             }
 
+            context.player.inventory.remove('rusty_key');
+            const usedItem = this.itemDb.getById('rusty_key');
+            if (usedItem) {
+              const usedMessage = DISPLAY_TEXT.world.item.used(usedItem.name);
+              const rarityTheme = ItemVisualsService.getRarityTheme(usedItem.rarity);
+              context.journal({
+                message: usedMessage,
+                highlights: [{ text: usedItem.name, color: rarityTheme.color }]
+              });
+            }
             isUnlocked = true;
           }
 
@@ -123,30 +176,27 @@ export class LevelLoader {
             isOpen = false;
             pivot.rotation.y = 0;
             this.collisionWorld.setObstacle(doorDefinition.obstacleId, doorDefinition.center, obstacleSize);
-            context.log(doorDefinition.entrance ? DISPLAY_TEXT.world.door.entranceClosing : DISPLAY_TEXT.world.door.closing);
+            context.event(doorDefinition.entrance ? DISPLAY_TEXT.world.door.entranceClosing : DISPLAY_TEXT.world.door.closing);
             return;
           }
 
           isOpen = true;
           pivot.rotation.y = this.getDoorOpenAngle(doorDefinition, context.player.position);
           this.collisionWorld.removeObstacle(doorDefinition.obstacleId);
-          context.log(doorDefinition.entrance ? DISPLAY_TEXT.world.door.entranceOpening : DISPLAY_TEXT.world.door.opening);
+          context.event(doorDefinition.entrance ? DISPLAY_TEXT.world.door.entranceOpening : DISPLAY_TEXT.world.door.opening);
         }
       });
     }
 
     return interactables;
   }
-
   private addDungeonShell(
     floorCenter: THREE.Vector3,
     ceilingCenter: THREE.Vector3,
-    size: number,
-    exteriorGroundCenter: THREE.Vector3,
-    exteriorGroundSize: THREE.Vector2
+    size: THREE.Vector2
   ): void {
     const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(size, size),
+      new THREE.PlaneGeometry(size.x, size.y),
       new THREE.MeshStandardMaterial({ color: '#5b5f4b' })
     );
     floor.rotation.x = -Math.PI / 2;
@@ -154,10 +204,8 @@ export class LevelLoader {
     floor.receiveShadow = ENABLE_SHADOWS;
     this.scene.add(floor);
 
-    this.addExteriorGroundRing(exteriorGroundCenter, exteriorGroundSize, size);
-
     const ceiling = new THREE.Mesh(
-      new THREE.PlaneGeometry(size, size),
+      new THREE.PlaneGeometry(size.x, size.y),
       new THREE.MeshStandardMaterial({ color: '#7f7a70', side: THREE.DoubleSide })
     );
     ceiling.rotation.x = Math.PI / 2;
@@ -500,10 +548,68 @@ export class LevelLoader {
     model.position.y -= box.min.y;
     model.position.z -= center.z;
   }
+  private async loadNpc(): Promise<{ root: THREE.Group; greet: () => void }> {
+    const asset = await this.assetLoader.loadModelAsset(MODEL_REGISTRY.npc.path);
+    const root = this.createModelRoot(asset.scene, MODEL_REGISTRY.npc, 'npc');
+    const greet = this.configureNpcAnimations(asset, root);
+    return { root, greet };
+  }
 
+  private configureNpcAnimations(asset: LoadedModel, root: THREE.Group): () => void {
+    const mixer = new THREE.AnimationMixer(asset.scene);
+    this.animationMixers.push(mixer);
+
+    const idleClip = asset.animations.find((clip) => clip.name === 'Running');
+    const greetClip = asset.animations.find((clip) => clip.name === 'Idle_6');
+
+    const idleAction = idleClip ? mixer.clipAction(idleClip) : null;
+    if (idleAction) {
+      idleAction.setLoop(THREE.LoopRepeat, Infinity);
+      idleAction.enabled = true;
+      idleAction.play();
+    }
+
+    if (!greetClip) {
+      return () => undefined;
+    }
+
+    const greetAction = mixer.clipAction(greetClip);
+    greetAction.setLoop(THREE.LoopOnce, 1);
+    greetAction.clampWhenFinished = true;
+
+    mixer.addEventListener('finished', (event) => {
+      if (event.action !== greetAction || !idleAction) {
+        return;
+      }
+
+      idleAction.reset();
+      idleAction.enabled = true;
+      idleAction.fadeIn(0.2).play();
+    });
+
+    return () => {
+      greetAction.stop();
+      greetAction.reset();
+      greetAction.enabled = true;
+      greetAction.setEffectiveTimeScale(1);
+      greetAction.setEffectiveWeight(1);
+      if (idleAction) {
+        idleAction.fadeOut(0.15);
+      }
+      greetAction.play();
+    };
+  }
   private async loadWithFallback(type: ModelKey): Promise<THREE.Object3D> {
     const definition = MODEL_REGISTRY[type];
     const model = await this.assetLoader.loadModel(definition.path);
+    return this.createModelRoot(model, definition, type);
+  }
+
+  private createModelRoot(
+    model: THREE.Object3D,
+    definition: ModelDefinition,
+    type: ModelKey
+  ): THREE.Group {
     this.enableShadows(model);
 
     if (model instanceof THREE.Mesh) {
@@ -534,7 +640,6 @@ export class LevelLoader {
       }
     });
   }
-
   private applyBaseTransform(model: THREE.Object3D, definition: ModelDefinition): void {
     if (definition.scale) {
       model.scale.set(...definition.scale);
@@ -580,6 +685,8 @@ export class LevelLoader {
     }
   }
 }
+
+
 
 
 

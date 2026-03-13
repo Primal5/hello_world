@@ -3,10 +3,12 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { ENABLE_SHADOWS } from './lighting';
 
-interface CachedModel {
+export interface LoadedModel {
   scene: THREE.Object3D;
   animations: THREE.AnimationClip[];
 }
+
+interface CachedModel extends LoadedModel {}
 
 export class AssetLoader {
   private readonly gltfLoader = new GLTFLoader();
@@ -15,9 +17,19 @@ export class AssetLoader {
   constructor(private readonly maxAnisotropy = 1) {}
 
   async loadModel(path: string): Promise<THREE.Object3D> {
+    const asset = await this.loadModelAsset(path);
+    return asset.scene;
+  }
+
+  async loadModelAsset(path: string): Promise<LoadedModel> {
     try {
       const cached = await this.loadAndCache(path);
-      return clone(cached.scene);
+      const scene = clone(cached.scene);
+      this.prepareScene(scene);
+      return {
+        scene,
+        animations: cached.animations
+      };
     } catch {
       const fallback = new THREE.Mesh(
         new THREE.BoxGeometry(1, 1, 1),

@@ -1,4 +1,4 @@
-﻿import * as THREE from 'three';
+import * as THREE from 'three';
 import { GameLoop } from './GameLoop';
 import { InputManager } from './InputManager';
 import { CollisionWorld } from '../engine/CollisionWorld';
@@ -12,7 +12,13 @@ import { InteractionSystem } from '../gameplay/interaction/InteractionSystem';
 import { ItemDatabase } from '../gameplay/items/ItemDatabase';
 import { DialogueSystem } from '../gameplay/dialogue/DialogueSystem';
 import { useGameStore } from '../ui/store/gameStore';
-import { useUiStore } from '../ui/store/uiStore';
+import {
+  useUiStore,
+  type DialogueChoice,
+  type EventMessageInput,
+  type JournalEntryInput,
+  type JournalHighlight
+} from '../ui/store/uiStore';
 import { AssetLoader } from '../engine/AssetLoader';
 import { DUNGEON_CONFIG } from '../engine/DungeonGenerator';
 import { DISPLAY_TEXT } from '../text/DisplayText';
@@ -25,8 +31,10 @@ export class Game {
   private readonly collisionWorld = new CollisionWorld();
   private readonly loop: GameLoop;
   private readonly raycastInteractor = new RaycastInteractor();
+  private readonly eventTimers = new Map<number, number>();
   private controller: FirstPersonController;
   private interactionSystem?: InteractionSystem;
+  private levelLoader?: LevelLoader;
   private northYaw = 0;
 
   constructor(private readonly container: HTMLElement) {
@@ -54,10 +62,69 @@ export class Game {
       this.collisionWorld
     );
 
+    this.levelLoader = levelLoader;
+
     const context = {
       player: this.player,
       dialogueSystem,
-      log: (message: string) => useUiStore.getState().addLog(message)
+      event: (entry: EventMessageInput) => {
+        const store = useUiStore.getState();
+        const id = store.pushEventMessage(entry);
+        const timer = window.setTimeout(() => {
+          useUiStore.getState().removeEventMessage(id);
+          this.eventTimers.delete(id);
+        }, 3200);
+        this.eventTimers.set(id, timer);
+      },
+      journal: (entry: JournalEntryInput) => useUiStore.getState().addJournalEntry(entry),
+      acknowledge: (
+        speaker: string,
+        message: string,
+        onConfirm?: () => void,
+        highlights?: JournalHighlight[]
+      ) => {
+        this.controller.exitPointerLock();
+        useUiStore.getState().openDialogue({
+          speaker,
+          message,
+          highlights,
+          mode: 'acknowledgment',
+          confirmLabel: DISPLAY_TEXT.ui.prompt.acknowledgeLabel,
+          onConfirm: () => {
+            onConfirm?.();
+            queueMicrotask(() => {
+              if (!useUiStore.getState().dialogueBox) {
+                this.controller.requestPointerLock();
+              }
+            });
+          }
+        });
+      },
+      choose: (
+        speaker: string,
+        message: string,
+        choices: DialogueChoice[],
+        highlights?: JournalHighlight[]
+      ) => {
+        this.controller.exitPointerLock();
+        useUiStore.getState().openDialogue({
+          speaker,
+          message,
+          highlights,
+          mode: 'choice',
+          choices: choices.map((choice) => ({
+            ...choice,
+            onSelect: () => {
+              choice.onSelect();
+              queueMicrotask(() => {
+                if (!useUiStore.getState().dialogueBox) {
+                  this.controller.requestPointerLock();
+                }
+              });
+            }
+          }))
+        });
+      }
     };
 
     const interactables = await levelLoader.load(context);
@@ -66,9 +133,9 @@ export class Game {
     useGameStore.getState().setInventory(this.player.inventory.getAll());
     useGameStore.getState().setMaxHealth(this.player.stats.health);
     useGameStore.getState().setHealth(this.player.stats.health);
-    this.northYaw = this.world.camera.rotation.y + Math.PI;
+    this.northYaw = this.world.camera.rotation.y;
     useGameStore.getState().setCompassHeading(0);
-    useUiStore.getState().addLog(DISPLAY_TEXT.ui.prompt.openInventory);
+    useUiStore.getState().addJournalEntry(DISPLAY_TEXT.ui.log.welcome);
 
     window.addEventListener('resize', this.onResize);
     window.addEventListener('keydown', this.onKeyDown);
@@ -81,14 +148,25 @@ export class Game {
     this.input.dispose();
     this.controller.dispose();
     this.renderer.dispose();
+    for (const timer of this.eventTimers.values()) {
+      window.clearTimeout(timer);
+    }
+    this.eventTimers.clear();
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('keydown', this.onKeyDown);
   }
 
   private update(delta: number): void {
-    this.controller.update(delta);
+    const dialogueBox = useUiStore.getState().dialogueBox;
+    const isDialogueOpen = Boolean(dialogueBox);
 
-    if (this.interactionSystem) {
+    if (!isDialogueOpen) {
+      this.controller.update(delta);
+    }
+
+    this.levelLoader?.update(delta);
+
+    if (this.interactionSystem && !isDialogueOpen) {
       const focused = this.raycastInteractor.pick(
         this.world.camera,
         this.interactionSystem.interactables,
@@ -98,7 +176,7 @@ export class Game {
     }
 
     const heading = THREE.MathUtils.euclideanModulo(
-      THREE.MathUtils.radToDeg(this.world.camera.rotation.y - this.northYaw),
+      THREE.MathUtils.radToDeg(this.northYaw - this.world.camera.rotation.y),
       360
     );
     useGameStore.getState().setCompassHeading(heading);
@@ -118,6 +196,14 @@ export class Game {
       return;
     }
 
+    const dialogueBox = useUiStore.getState().dialogueBox;
+    if (dialogueBox?.mode === 'acknowledgment' && event.code === DISPLAY_TEXT.ui.prompt.acknowledgeKeyCode) {
+      event.preventDefault();
+      dialogueBox.onConfirm?.();
+      useUiStore.getState().closeDialogue();
+      return;
+    }
+
     if (event.code === 'KeyE') {
       this.interactionSystem?.tryInteract();
       return;
@@ -131,6 +217,8 @@ export class Game {
 
     if (event.code === 'Escape') {
       useUiStore.getState().closeInventory();
+      useUiStore.getState().closeDialogue();
+      this.controller.requestPointerLock();
     }
   };
 }

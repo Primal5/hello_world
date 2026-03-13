@@ -1,4 +1,4 @@
-﻿# Assets 3D
+# Assets 3D
 
 Déposez ici vos exports Meshy au format `.glb` ou `.gltf`.
 

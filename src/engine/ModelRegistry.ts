@@ -1,4 +1,4 @@
-﻿export interface ModelDefinition {
+export interface ModelDefinition {
   path: string;
   scale?: [number, number, number];
   rotation?: [number, number, number];
@@ -18,7 +18,7 @@ export const MODEL_REGISTRY = {
     placeOnGround: true
   },
   npc: {
-    path: '/assets/models/meshy/pnj/Meshy_AI_Oriental_Cyber_Golem_0311220806_texture.glb',
+    path: '/assets/models/meshy/pnj/Gerard.glb',
     scale: [1, 1, 1],
     rotation: [0, Math.PI, 0],
     placeOnGround: true

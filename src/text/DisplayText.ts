@@ -1,4 +1,4 @@
-﻿export const DISPLAY_TEXT = {
+export const DISPLAY_TEXT = {
   ui: {
     inventory: {
       ariaLabel: 'Inventaire du joueur',
@@ -6,15 +6,17 @@
       title: 'Inventaire',
       emptyBag: 'Votre sac est vide.',
       emptyHint: "Fouillez le coffre près de l'entrée pour récupérer la clé.",
-      closeHint: 'Appuyez sur I ou Échap pour fermer.',
+      closeHint: 'Appuyez sur i pour fermer.',
       itemCount: (count: number) => `${count} objet${count > 1 ? 's' : ''}`
     },
     prompt: {
       interact: (label: string) => `Appuyez sur E pour ${label}`,
-      openInventory: "Appuyez sur I pour ouvrir l'inventaire."
+      openInventory: "Appuyez sur I pour ouvrir l'inventaire.",
+      acknowledgeKeyCode: 'Enter',
+      acknowledgeLabel: 'Compris !'
     },
     log: {
-      welcome: 'Bienvenue dans la démo FPS/RPG !'
+      welcome: 'Bienvenue dans la démo FPS/RPG.'
     },
     hud: {
       healthAria: (current: number, max: number) => `Points de vie : ${current} sur ${max}`,
@@ -24,21 +26,26 @@
   world: {
     chest: {
       interactLabel: 'ouvrir le coffre',
-      obtainedItem: (name: string) => `Vous obtenez : ${name}`
+      empty: 'Le coffre est vide.',
+      obtainedItem: (name: string) => `Vous obtenez : ${name}.`
+    },
+    item: {
+      used: (name: string) => `${name} utilisée.`
     },
     npc: {
-      interactLabel: 'parler au PNJ',
-      prefix: 'PNJ'
+      interactLabel: 'parler au garde du didacticiel',
+      prefix: 'Garde du didacticiel'
     },
     door: {
       entranceInteractLabel: "ouvrir ou fermer l'entrée",
       interactLabel: 'ouvrir ou fermer la porte',
       entranceLocked: "L'entrée est verrouillée. Il faut une clé.",
+      entranceLockedItem: (name: string) => `L'entrée est verrouillée. Il faut ${name}.`,
       locked: 'La porte est verrouillée.',
       entranceClosing: "L'entrée se referme.",
       closing: 'La porte se referme.',
       entranceOpening: "L'entrée s'ouvre.",
-      opening: 'La porte s\'ouvre.'
+      opening: "La porte s'ouvre."
     }
   },
   items: {
@@ -49,7 +56,7 @@
     }
   },
   dialogues: {
-    npcGuardHint: 'La clé ouvre la vieille porte.'
+    npcGuardHint: (itemName: string) => `${itemName} ouvre la vieille porte.`
   }
 } as const;
 

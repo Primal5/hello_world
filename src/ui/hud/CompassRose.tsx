@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 
 const SIZE = 124;
@@ -31,6 +32,20 @@ function renderTicks(): JSX.Element[] {
 
 export function CompassRose(): JSX.Element {
   const compassHeading = useGameStore((state) => state.compassHeading);
+  const [displayHeading, setDisplayHeading] = useState(compassHeading);
+  const previousHeadingRef = useRef(compassHeading);
+
+  useEffect(() => {
+    let delta = compassHeading - previousHeadingRef.current;
+    if (delta > 180) {
+      delta -= 360;
+    } else if (delta < -180) {
+      delta += 360;
+    }
+
+    previousHeadingRef.current += delta;
+    setDisplayHeading(previousHeadingRef.current);
+  }, [compassHeading]);
 
   return (
     <div className="compass-rose" aria-label="Boussole">
@@ -39,7 +54,7 @@ export function CompassRose(): JSX.Element {
         <svg
           className="compass-rose__svg"
           viewBox={`0 0 ${SIZE} ${SIZE}`}
-          style={{ transform: `rotate(${-compassHeading}deg)` }}
+          style={{ transform: `rotate(${-displayHeading}deg)` }}
           role="img"
         >
           <circle className="compass-rose__ring" cx={CENTER} cy={CENTER} r={CENTER - 8} />

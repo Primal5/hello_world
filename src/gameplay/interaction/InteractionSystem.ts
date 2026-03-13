@@ -1,6 +1,12 @@
-﻿import { GAME_CONFIG } from '../../core/Config';
+import { GAME_CONFIG } from '../../core/Config';
 import { useGameStore } from '../../ui/store/gameStore';
-import { useUiStore } from '../../ui/store/uiStore';
+import {
+  useUiStore,
+  type DialogueChoice,
+  type EventMessageInput,
+  type JournalEntryInput,
+  type JournalHighlight
+} from '../../ui/store/uiStore';
 import { DISPLAY_TEXT } from '../../text/DisplayText';
 import type { DialogueSystem } from '../dialogue/DialogueSystem';
 import type { Player } from '../player/Player';
@@ -9,7 +15,20 @@ import type { Interactable } from './Interactable';
 export interface InteractionContext {
   player: Player;
   dialogueSystem: DialogueSystem;
-  log: (message: string) => void;
+  event: (entry: EventMessageInput) => void;
+  journal: (entry: JournalEntryInput) => void;
+  acknowledge: (
+    speaker: string,
+    message: string,
+    onConfirm?: () => void,
+    highlights?: JournalHighlight[]
+  ) => void;
+  choose: (
+    speaker: string,
+    message: string,
+    choices: DialogueChoice[],
+    highlights?: JournalHighlight[]
+  ) => void;
 }
 
 export class InteractionSystem {
@@ -28,7 +47,7 @@ export class InteractionSystem {
     this.focus = interactable;
 
     const { setInteractionPrompt } = useUiStore.getState();
-    if (!interactable) {
+    if (!interactable || useUiStore.getState().dialogueBox) {
       setInteractionPrompt(null);
       return;
     }
@@ -38,6 +57,10 @@ export class InteractionSystem {
   }
 
   tryInteract(): void {
+    if (useUiStore.getState().dialogueBox) {
+      return;
+    }
+
     if (!this.focus) return;
     if (!this.focus.canInteract(this.context)) return;
 

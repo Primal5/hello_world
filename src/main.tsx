@@ -9,6 +9,14 @@ if (!rootElement) {
   throw new Error('Root element not found');
 }
 
+const preventBrowserUi = (event: Event): void => {
+  event.preventDefault();
+};
+
+document.addEventListener('contextmenu', preventBrowserUi);
+document.addEventListener('selectstart', preventBrowserUi);
+document.addEventListener('dragstart', preventBrowserUi);
+
 const gameContainer = document.createElement('div');
 gameContainer.style.width = '100%';
 gameContainer.style.height = '100%';
@@ -20,7 +28,12 @@ rootElement.appendChild(uiContainer);
 const game = new Game(gameContainer);
 void game.init();
 
-window.addEventListener('beforeunload', () => game.dispose());
+window.addEventListener('beforeunload', () => {
+  document.removeEventListener('contextmenu', preventBrowserUi);
+  document.removeEventListener('selectstart', preventBrowserUi);
+  document.removeEventListener('dragstart', preventBrowserUi);
+  game.dispose();
+});
 
 ReactDOM.createRoot(uiContainer).render(
   <React.StrictMode>
