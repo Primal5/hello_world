@@ -71,39 +71,41 @@ export class LevelLoader {
 
     const interactables: Interactable[] = [];
 
-    const chest = await this.loadWithFallback('chest');
-    this.placeObject(chest, layout.chestPosition);
-    this.scene.add(chest);
+    for (const chestDefinition of layout.chests) {
+      const chest = await this.loadWithFallback('chest');
+      this.placeObject(chest, chestDefinition.position);
+      this.scene.add(chest);
 
-    let chestOpened = false;
-    interactables.push({
-      id: 'starter_chest',
-      label: DISPLAY_TEXT.world.chest.interactLabel,
-      object3D: chest,
-      canInteract: () => true,
-      interact: () => {
-        if (chestOpened) {
-          context.event(DISPLAY_TEXT.world.chest.empty);
-          return;
-        }
+      let chestOpened = false;
+      interactables.push({
+        id: chestDefinition.id,
+        label: DISPLAY_TEXT.world.chest.interactLabel,
+        object3D: chest,
+        canInteract: () => true,
+        interact: () => {
+          if (chestOpened) {
+            context.event(DISPLAY_TEXT.world.chest.empty);
+            return;
+          }
 
-        chestOpened = true;
-        const item = this.itemDb.getById('rusty_key');
-        if (item && context.player.inventory.add(item.id)) {
-          const message = DISPLAY_TEXT.world.chest.obtainedItem(item.name);
-          const rarityTheme = ItemVisualsService.getRarityTheme(item.rarity);
-          const highlights = [{ text: item.name, color: rarityTheme.color }];
-          context.event({
-            message,
-            highlights
-          });
-          context.journal({
-            message,
-            highlights
-          });
+          chestOpened = true;
+          const item = this.itemDb.getById(chestDefinition.itemId);
+          if (item && context.player.inventory.add(item.id)) {
+            const message = DISPLAY_TEXT.world.chest.obtainedItem(item.name);
+            const rarityTheme = ItemVisualsService.getRarityTheme(item.rarity);
+            const highlights = [{ text: item.name, color: rarityTheme.color }];
+            context.event({
+              message,
+              highlights
+            });
+            context.journal({
+              message,
+              highlights
+            });
+          }
         }
-      }
-    });
+      });
+    }
 
     const { root: npc, greet: greetNpc } = await this.loadNpc();
     this.placeObject(npc, layout.npcPosition);
@@ -115,7 +117,7 @@ export class LevelLoader {
       canInteract: () => true,
       interact: () => {
         greetNpc();
-        const requiredItem = this.itemDb.getById('rusty_key');
+        const requiredItem = this.itemDb.getById('bronze_key');
         const line = this.dialogueSystem.getLine('npc_guard_hint');
         const highlights = requiredItem
           ? [{
@@ -138,14 +140,30 @@ export class LevelLoader {
       let isUnlocked = !doorDefinition.locked;
       interactables.push({
         id: doorDefinition.id,
-        label: doorDefinition.entrance ? DISPLAY_TEXT.world.door.entranceInteractLabel : DISPLAY_TEXT.world.door.interactLabel,
+        label: doorDefinition.doorName
+          ? DISPLAY_TEXT.world.door.interactNamedLabel(doorDefinition.doorName)
+          : doorDefinition.entrance
+            ? DISPLAY_TEXT.world.door.entranceInteractLabel
+            : DISPLAY_TEXT.world.door.interactLabel,
         object3D: root,
         canInteract: () => true,
         interact: () => {
           if (!isUnlocked) {
-            if (!context.player.inventory.has('rusty_key')) {
-              if (doorDefinition.entrance) {
-                const requiredItem = this.itemDb.getById('rusty_key');
+            const requiredItemId = doorDefinition.requiredItemId;
+            if (!requiredItemId || !context.player.inventory.has(requiredItemId)) {
+              if (doorDefinition.doorName && requiredItemId) {
+                const requiredItem = this.itemDb.getById(requiredItemId);
+                if (requiredItem) {
+                  const rarityTheme = ItemVisualsService.getRarityTheme(requiredItem.rarity);
+                  context.event({
+                    message: DISPLAY_TEXT.world.door.lockedNamedItem(doorDefinition.doorName, requiredItem.name),
+                    highlights: [{ text: requiredItem.name, color: rarityTheme.color }]
+                  });
+                } else {
+                  context.event(DISPLAY_TEXT.world.door.locked);
+                }
+              } else if (doorDefinition.entrance) {
+                const requiredItem = requiredItemId ? this.itemDb.getById(requiredItemId) : undefined;
                 if (requiredItem) {
                   const rarityTheme = ItemVisualsService.getRarityTheme(requiredItem.rarity);
                   context.event({
@@ -161,8 +179,10 @@ export class LevelLoader {
               return;
             }
 
-            context.player.inventory.remove('rusty_key');
-            const usedItem = this.itemDb.getById('rusty_key');
+            if (requiredItemId) {
+              context.player.inventory.remove(requiredItemId);
+            }
+            const usedItem = requiredItemId ? this.itemDb.getById(requiredItemId) : undefined;
             if (usedItem) {
               const usedMessage = DISPLAY_TEXT.world.item.used(usedItem.name);
               const rarityTheme = ItemVisualsService.getRarityTheme(usedItem.rarity);
@@ -178,14 +198,26 @@ export class LevelLoader {
             isOpen = false;
             pivot.rotation.y = 0;
             this.collisionWorld.setObstacle(doorDefinition.obstacleId, doorDefinition.center, obstacleSize);
-            context.event(doorDefinition.entrance ? DISPLAY_TEXT.world.door.entranceClosing : DISPLAY_TEXT.world.door.closing);
+            context.event(
+              doorDefinition.doorName
+                ? DISPLAY_TEXT.world.door.closingNamed(doorDefinition.doorName)
+                : doorDefinition.entrance
+                  ? DISPLAY_TEXT.world.door.entranceClosing
+                  : DISPLAY_TEXT.world.door.closing
+            );
             return;
           }
 
           isOpen = true;
           pivot.rotation.y = this.getDoorOpenAngle(doorDefinition, context.player.position);
           this.collisionWorld.removeObstacle(doorDefinition.obstacleId);
-          context.event(doorDefinition.entrance ? DISPLAY_TEXT.world.door.entranceOpening : DISPLAY_TEXT.world.door.opening);
+          context.event(
+            doorDefinition.doorName
+              ? DISPLAY_TEXT.world.door.openingNamed(doorDefinition.doorName)
+              : doorDefinition.entrance
+                ? DISPLAY_TEXT.world.door.entranceOpening
+                : DISPLAY_TEXT.world.door.opening
+          );
         }
       });
     }
