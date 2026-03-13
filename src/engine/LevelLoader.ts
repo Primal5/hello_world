@@ -117,7 +117,7 @@ export class LevelLoader {
       canInteract: () => true,
       interact: () => {
         greetNpc();
-        const requiredItem = this.itemDb.getById('bronze_key');
+        const requiredItem = this.itemDb.getById('rusty_key');
         const line = this.dialogueSystem.getLine('npc_guard_hint');
         const highlights = requiredItem
           ? [{

@@ -175,12 +175,15 @@ const HORIZONTAL_PRIORITY = 1;
 const VERTICAL_PRIORITY = 0;
 
 
-const BRONZE_DOOR_CORRIDOR_ID = 'corridor_spawn_room1';
+const ENTRANCE_DOOR_CORRIDOR_ID = 'corridor_spawn_room1';
+const BRONZE_DOOR_CORRIDOR_ID = 'corridor_room3_room5';
 const SILVER_DOOR_CORRIDOR_ID = 'corridor_room5_room9';
 const GOLD_DOOR_CORRIDOR_ID = 'corridor_room9_boss';
-const SILVER_DOOR_ROOM_ID = 'room5';
+const BRONZE_DOOR_ROOM_ID = 'room5';
+const SILVER_DOOR_ROOM_ID = 'room9';
 const GOLD_DOOR_ROOM_ID = 'boss';
 const MIN_KEY_DISTANCE_FROM_SPAWN = 5;
+const MIN_KEY_DISTANCE_FROM_ENTRANCE = 5;
 const MIN_KEY_DISTANCE_FROM_PREVIOUS_DOOR = 5;
 
 export const DUNGEON_CONFIG = {
@@ -242,10 +245,11 @@ export function generateDungeonLayout(): DungeonLayout {
   }
 
   const npcPosition = getSpawnNpcPosition(spawnRoom, entranceDoor, DUNGEON_CONFIG.startPosition);
+  const entranceDoorWithKey = getRequiredDoor(doors, 'rusty_key');
   const bronzeDoor = getRequiredDoor(doors, 'bronze_key');
   const silverDoor = getRequiredDoor(doors, 'silver_key');
 
-  const bronzeChestPosition = getSpawnChestPosition(
+  const rustyChestPosition = getSpawnChestPosition(
     spawnRoom,
     entranceDoor,
     npcPosition,
@@ -253,8 +257,10 @@ export function generateDungeonLayout(): DungeonLayout {
     MIN_KEY_DISTANCE_FROM_SPAWN
   );
 
+  const bronzeChestRoom = pickBronzeChestRoom(graph, roomById);
   const silverChestRoom = pickSilverChestRoom(graph, roomById, spawnRoom.id);
   const goldChestRoom = pickGoldChestRoom(graph, roomById);
+  const bronzeChestPosition = getRoomChestPositionWithClearance(bronzeChestRoom, [entranceDoorWithKey.center], MIN_KEY_DISTANCE_FROM_ENTRANCE);
   const silverChestPosition = getRoomChestPositionWithClearance(silverChestRoom, [bronzeDoor.center], MIN_KEY_DISTANCE_FROM_PREVIOUS_DOOR);
   const goldChestPosition = getRoomChestPositionWithClearance(goldChestRoom, [silverDoor.center], MIN_KEY_DISTANCE_FROM_PREVIOUS_DOOR);
 
@@ -267,7 +273,8 @@ export function generateDungeonLayout(): DungeonLayout {
     wallSegments: normalizedWallSegments,
     doors,
     chests: [
-      { id: 'bronze_key_chest', roomId: 'spawn', position: bronzeChestPosition, itemId: 'bronze_key' },
+      { id: 'rusty_key_chest', roomId: 'spawn', position: rustyChestPosition, itemId: 'rusty_key' },
+      { id: 'bronze_key_chest', roomId: bronzeChestRoom.id, position: bronzeChestPosition, itemId: 'bronze_key' },
       { id: 'silver_key_chest', roomId: silverChestRoom.id, position: silverChestPosition, itemId: 'silver_key' },
       { id: 'gold_key_chest', roomId: goldChestRoom.id, position: goldChestPosition, itemId: 'gold_key' }
     ],
@@ -1192,6 +1199,23 @@ function getRequiredDoor(doors: DungeonDoorDefinition[], itemId: string): Dungeo
   return door;
 }
 
+
+function pickBronzeChestRoom(graph: DungeonGraph, roomById: Map<string, DungeonRoomNode>): DungeonRoomNode {
+  const blockedCorridors = new Set<string>([BRONZE_DOOR_CORRIDOR_ID]);
+  const reachable = getReachableRoomIds(graph, 'room1', blockedCorridors);
+
+  const candidates = [...reachable]
+    .map((roomId) => roomById.get(roomId))
+    .filter((room): room is DungeonRoomNode => Boolean(room))
+    .filter((room) => room.id !== 'spawn');
+
+  if (candidates.length === 0) {
+    throw new Error('Unable to place bronze key chest after the entrance and before the bronze door.');
+  }
+
+  return candidates[randomInt(0, candidates.length - 1)];
+}
+
 function pickSilverChestRoom(
   graph: DungeonGraph,
   roomById: Map<string, DungeonRoomNode>,
@@ -1203,7 +1227,7 @@ function pickSilverChestRoom(
   }
 
   const blockedCorridors = new Set<string>([SILVER_DOOR_CORRIDOR_ID]);
-  const reachableFromRoom1 = getReachableRoomIds(graph, 'room1', blockedCorridors);
+  const reachableFromRoom1 = getReachableRoomIds(graph, BRONZE_DOOR_ROOM_ID, blockedCorridors);
   const spawnCenter = getRoomCenterWorldPosition(spawnRoom);
 
   const candidates = [...reachableFromRoom1]
@@ -1386,7 +1410,11 @@ function createCorridorTransitions(
 }
 
 function getDoorRequiredItemId(corridorId: string, roomId: string): string | undefined {
-  if (corridorId === BRONZE_DOOR_CORRIDOR_ID && roomId === 'room1') {
+  if (corridorId === ENTRANCE_DOOR_CORRIDOR_ID && roomId === 'room1') {
+    return 'rusty_key';
+  }
+
+  if (corridorId === BRONZE_DOOR_CORRIDOR_ID && roomId === BRONZE_DOOR_ROOM_ID) {
     return 'bronze_key';
   }
 
@@ -1402,6 +1430,10 @@ function getDoorRequiredItemId(corridorId: string, roomId: string): string | und
 }
 
 function getDoorName(requiredItemId?: string): string | undefined {
+  if (requiredItemId === 'rusty_key') {
+    return "porte d'entrée";
+  }
+
   if (requiredItemId === 'bronze_key') {
     return 'porte de bronze';
   }
