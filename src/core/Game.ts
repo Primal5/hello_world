@@ -56,7 +56,7 @@ export class Game {
     const dialogueSystem = new DialogueSystem();
     const levelLoader = new LevelLoader(
       this.world.scene,
-      new AssetLoader(),
+      new AssetLoader(this.renderer.instance.capabilities.getMaxAnisotropy()),
       itemDb,
       dialogueSystem,
       this.collisionWorld
