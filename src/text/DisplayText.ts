@@ -53,9 +53,14 @@ export const DISPLAY_TEXT = {
     }
   },
   items: {
+    rustyKey: {
+      name: 'Clé rouillée',
+      description: "Ouvre la porte d'entrée vers le secteur de départ.",
+      category: 'Objet de quête'
+    },
     bronzeKey: {
       name: 'Clé de bronze',
-      description: 'Ouvre la porte vers la zone bronze.',
+      description: 'Ouvre la porte vers le secteur bronze.',
       category: 'Objet de quête'
     },
     silverKey: {
