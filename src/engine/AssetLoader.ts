@@ -37,7 +37,10 @@ export class AssetLoader {
       );
       fallback.castShadow = ENABLE_SHADOWS;
       fallback.receiveShadow = ENABLE_SHADOWS;
-      return fallback;
+      return {
+        scene: fallback,
+        animations: []
+      };
     }
   }
 

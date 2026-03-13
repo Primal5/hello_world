@@ -14,6 +14,8 @@ import {
 } from './DungeonGenerator';
 import { MODEL_REGISTRY, type ModelDefinition, type ModelKey } from './ModelRegistry';
 import { DISPLAY_TEXT } from '../text/DisplayText';
+import { ItemVisualsService } from '../gameplay/items/ItemVisuals';
+import type { LoadedModel } from './AssetLoader';
 
 interface WallEndBehavior {
   trimStart: boolean;
@@ -559,8 +561,8 @@ export class LevelLoader {
     const mixer = new THREE.AnimationMixer(asset.scene);
     this.animationMixers.push(mixer);
 
-    const idleClip = asset.animations.find((clip) => clip.name === 'Running');
-    const greetClip = asset.animations.find((clip) => clip.name === 'Idle_6');
+    const idleClip = asset.animations.find((clip: THREE.AnimationClip) => clip.name === 'Running');
+    const greetClip = asset.animations.find((clip: THREE.AnimationClip) => clip.name === 'Idle_6');
 
     const idleAction = idleClip ? mixer.clipAction(idleClip) : null;
     if (idleAction) {
