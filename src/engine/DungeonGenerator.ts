@@ -26,6 +26,7 @@ export interface DungeonDoorDefinition {
   locked: boolean;
   entrance: boolean;
   requiredItemId?: string;
+  doorName?: string;
 }
 
 export interface DungeonChestDefinition {
@@ -67,6 +68,7 @@ interface CorridorTransition {
   locked: boolean;
   entrance: boolean;
   requiredItemId?: string;
+  doorName?: string;
 }
 
 export interface DungeonRoomNode {
@@ -172,6 +174,15 @@ const ENTRANCE_Z = MIN_Z;
 const HORIZONTAL_PRIORITY = 1;
 const VERTICAL_PRIORITY = 0;
 
+
+const BRONZE_DOOR_CORRIDOR_ID = 'corridor_spawn_room1';
+const SILVER_DOOR_CORRIDOR_ID = 'corridor_room5_room9';
+const GOLD_DOOR_CORRIDOR_ID = 'corridor_room9_boss';
+const SILVER_DOOR_ROOM_ID = 'room5';
+const GOLD_DOOR_ROOM_ID = 'boss';
+const MIN_KEY_DISTANCE_FROM_SPAWN = 5;
+const MIN_KEY_DISTANCE_FROM_PREVIOUS_DOOR = 5;
+
 export const DUNGEON_CONFIG = {
   size: DUNGEON_SIZE,
   height: WALL_HEIGHT,
@@ -230,16 +241,22 @@ export function generateDungeonLayout(): DungeonLayout {
     throw new Error('Spawn room or entrance door is missing.');
   }
 
-  const npcPosition = getSpawnNpcPosition(spawnRoom, entranceDoor);
-  const room5 = roomById.get('room5');
-  const room9 = roomById.get('room9');
-  if (!room5 || !room9) {
-    throw new Error('Required progression rooms are missing.');
-  }
+  const npcPosition = getSpawnNpcPosition(spawnRoom, entranceDoor, DUNGEON_CONFIG.startPosition);
+  const bronzeDoor = getRequiredDoor(doors, 'bronze_key');
+  const silverDoor = getRequiredDoor(doors, 'silver_key');
 
-  const bronzeChestPosition = getSpawnChestPosition(spawnRoom, entranceDoor, npcPosition, DUNGEON_CONFIG.startPosition);
-  const silverChestPosition = getRoomChestPosition(room5);
-  const goldChestPosition = getRoomChestPosition(room9);
+  const bronzeChestPosition = getSpawnChestPosition(
+    spawnRoom,
+    entranceDoor,
+    npcPosition,
+    DUNGEON_CONFIG.startPosition,
+    MIN_KEY_DISTANCE_FROM_SPAWN
+  );
+
+  const silverChestRoom = pickSilverChestRoom(graph, roomById, spawnRoom.id);
+  const goldChestRoom = pickGoldChestRoom(graph, roomById);
+  const silverChestPosition = getRoomChestPositionWithClearance(silverChestRoom, [bronzeDoor.center], MIN_KEY_DISTANCE_FROM_PREVIOUS_DOOR);
+  const goldChestPosition = getRoomChestPositionWithClearance(goldChestRoom, [silverDoor.center], MIN_KEY_DISTANCE_FROM_PREVIOUS_DOOR);
 
   return {
     floorCenter: new THREE.Vector3(shell.center.x, 0, shell.center.y),
@@ -251,8 +268,8 @@ export function generateDungeonLayout(): DungeonLayout {
     doors,
     chests: [
       { id: 'bronze_key_chest', roomId: 'spawn', position: bronzeChestPosition, itemId: 'bronze_key' },
-      { id: 'silver_key_chest', roomId: 'room5', position: silverChestPosition, itemId: 'silver_key' },
-      { id: 'gold_key_chest', roomId: 'room9', position: goldChestPosition, itemId: 'gold_key' }
+      { id: 'silver_key_chest', roomId: silverChestRoom.id, position: silverChestPosition, itemId: 'silver_key' },
+      { id: 'gold_key_chest', roomId: goldChestRoom.id, position: goldChestPosition, itemId: 'gold_key' }
     ],
     npcPosition,
     exteriorGroundCenter: new THREE.Vector3(ENTRANCE_X, 0, -17),
@@ -938,21 +955,26 @@ function getRoomWorldBounds(room: DungeonRoomNode): RoomWorldBounds {
   return getRoomRect(room.bounds);
 }
 
-function getSpawnNpcPosition(_spawnRoom: DungeonRoomNode, entranceDoor: DungeonDoorDefinition): THREE.Vector3 {
-  return new THREE.Vector3(entranceDoor.center.x - 2, 0, entranceDoor.center.z - 0.9);
+function getSpawnNpcPosition(_spawnRoom: DungeonRoomNode, entranceDoor: DungeonDoorDefinition, playerStartPosition: THREE.Vector3): THREE.Vector3 {
+  const fallback = new THREE.Vector3(entranceDoor.center.x - 2, 0, entranceDoor.center.z - 0.9);
+  if (fallback.distanceTo(playerStartPosition) >= 1.5) {
+    return fallback;
+  }
+
+  return new THREE.Vector3(entranceDoor.center.x + 2, 0, entranceDoor.center.z - 0.9);
 }
 
 function getSpawnChestPosition(
   spawnRoom: DungeonRoomNode,
   entranceDoor: DungeonDoorDefinition,
   npcPosition: THREE.Vector3,
-  playerStartPosition: THREE.Vector3
+  playerStartPosition: THREE.Vector3,
+  playerClearance: number
 ): THREE.Vector3 {
   const spawnBounds = getRoomWorldBounds(spawnRoom);
   const margin = 1;
   const doorClearance = 3.25;
   const npcClearance = 2.25;
-  const playerClearance = 2.5;
 
   for (let attempt = 0; attempt < 200; attempt += 1) {
     const candidate = new THREE.Vector3(
@@ -984,13 +1006,33 @@ function randomBetween(min: number, max: number): number {
 }
 
 function getRoomChestPosition(room: DungeonRoomNode): THREE.Vector3 {
+  return getRoomChestPositionWithClearance(room, []);
+}
+
+function getRoomChestPositionWithClearance(
+  room: DungeonRoomNode,
+  forbiddenPoints: THREE.Vector3[],
+  minDistance = 0
+): THREE.Vector3 {
   const bounds = getRoomWorldBounds(room);
   const margin = 1;
-  return new THREE.Vector3(
-    randomBetween(bounds.xMin + margin, bounds.xMax - margin),
-    0,
-    randomBetween(bounds.zMin + margin, bounds.zMax - margin)
-  );
+
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const candidate = new THREE.Vector3(
+      randomBetween(bounds.xMin + margin, bounds.xMax - margin),
+      0,
+      randomBetween(bounds.zMin + margin, bounds.zMax - margin)
+    );
+
+    const tooClose = forbiddenPoints.some((point) => candidate.distanceTo(point) < minDistance);
+    if (tooClose) {
+      continue;
+    }
+
+    return candidate;
+  }
+
+  return new THREE.Vector3(bounds.xMin + margin, 0, bounds.zMin + margin);
 }
 
 function getCorridorRect(fromRoom: DungeonRoomNode, toRoom: DungeonRoomNode, corridor: DungeonCorridorEdge): Rect {
@@ -1139,6 +1181,105 @@ function buildWallSegments(horizontalEdges: boolean[][], verticalEdges: boolean[
   return segments;
 }
 
+
+
+function getRequiredDoor(doors: DungeonDoorDefinition[], itemId: string): DungeonDoorDefinition {
+  const door = doors.find((candidate) => candidate.requiredItemId === itemId);
+  if (!door) {
+    throw new Error('Missing required door for item: ' + itemId);
+  }
+
+  return door;
+}
+
+function pickSilverChestRoom(
+  graph: DungeonGraph,
+  roomById: Map<string, DungeonRoomNode>,
+  spawnRoomId: string
+): DungeonRoomNode {
+  const spawnRoom = roomById.get(spawnRoomId);
+  if (!spawnRoom) {
+    throw new Error('Spawn room is missing for silver key placement.');
+  }
+
+  const blockedCorridors = new Set<string>([SILVER_DOOR_CORRIDOR_ID]);
+  const reachableFromRoom1 = getReachableRoomIds(graph, 'room1', blockedCorridors);
+  const spawnCenter = getRoomCenterWorldPosition(spawnRoom);
+
+  const candidates = [...reachableFromRoom1]
+    .map((roomId) => roomById.get(roomId))
+    .filter((room): room is DungeonRoomNode => Boolean(room))
+    .filter((room) => room.id !== spawnRoomId)
+    .filter((room) => room.id !== SILVER_DOOR_ROOM_ID)
+    .filter((room) => getRoomCenterWorldPosition(room).distanceTo(spawnCenter) >= MIN_KEY_DISTANCE_FROM_SPAWN);
+
+  if (candidates.length === 0) {
+    throw new Error("Unable to place silver key chest away from spawn and before the silver door.");
+  }
+
+  return candidates[randomInt(0, candidates.length - 1)];
+}
+
+function pickGoldChestRoom(graph: DungeonGraph, roomById: Map<string, DungeonRoomNode>): DungeonRoomNode {
+  const blockedCorridors = new Set<string>([GOLD_DOOR_CORRIDOR_ID]);
+  const reachable = getReachableRoomIds(graph, 'room9', blockedCorridors);
+
+  const candidates = [...reachable]
+    .map((roomId) => roomById.get(roomId))
+    .filter((room): room is DungeonRoomNode => Boolean(room))
+    .filter((room) => room.id !== GOLD_DOOR_ROOM_ID);
+
+  if (candidates.length === 0) {
+    throw new Error('Unable to place gold key chest before the gold door.');
+  }
+
+  return candidates[randomInt(0, candidates.length - 1)];
+}
+
+function getReachableRoomIds(graph: DungeonGraph, startRoomId: string, blockedCorridors: Set<string>): Set<string> {
+  const adjacency = new Map<string, string[]>();
+  for (const corridor of graph.corridors) {
+    if (blockedCorridors.has(corridor.id)) {
+      continue;
+    }
+
+    if (!adjacency.has(corridor.from)) {
+      adjacency.set(corridor.from, []);
+    }
+    if (!adjacency.has(corridor.to)) {
+      adjacency.set(corridor.to, []);
+    }
+
+    adjacency.get(corridor.from)?.push(corridor.to);
+    adjacency.get(corridor.to)?.push(corridor.from);
+  }
+
+  const visited = new Set<string>([startRoomId]);
+  const queue: string[] = [startRoomId];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) {
+      continue;
+    }
+
+    for (const next of adjacency.get(current) ?? []) {
+      if (visited.has(next)) {
+        continue;
+      }
+      visited.add(next);
+      queue.push(next);
+    }
+  }
+
+  return visited;
+}
+
+function getRoomCenterWorldPosition(room: DungeonRoomNode): THREE.Vector3 {
+  const bounds = getRoomWorldBounds(room);
+  return new THREE.Vector3((bounds.xMin + bounds.xMax) / 2, 0, (bounds.zMin + bounds.zMax) / 2);
+}
+
 function createCorridorTransitions(
   corridor: DungeonCorridorEdge,
   fromRoom: DungeonRoomNode,
@@ -1172,7 +1313,8 @@ function createCorridorTransitions(
           wallEnd: spawnBounds.xMax,
           locked: true,
           entrance: true,
-          requiredItemId: 'bronze_key'
+          requiredItemId: getDoorRequiredItemId(corridor.id, 'room1'),
+          doorName: getDoorName(getDoorRequiredItemId(corridor.id, 'room1'))
         }
       ];
     }
@@ -1188,7 +1330,8 @@ function createCorridorTransitions(
         wallEnd: lowerBounds.xMax,
         locked: lowerRoom.type === 'lockedDoorRoom' || getDoorRequiredItemId(corridor.id, lowerRoom.id) !== undefined,
         entrance: false,
-        requiredItemId: getDoorRequiredItemId(corridor.id, lowerRoom.id)
+        requiredItemId: getDoorRequiredItemId(corridor.id, lowerRoom.id),
+        doorName: getDoorName(getDoorRequiredItemId(corridor.id, lowerRoom.id))
       },
       {
         roomId: upperRoom.id,
@@ -1200,7 +1343,8 @@ function createCorridorTransitions(
         wallEnd: upperBounds.xMax,
         locked: upperRoom.type === 'lockedDoorRoom' || getDoorRequiredItemId(corridor.id, upperRoom.id) !== undefined,
         entrance: false,
-        requiredItemId: getDoorRequiredItemId(corridor.id, upperRoom.id)
+        requiredItemId: getDoorRequiredItemId(corridor.id, upperRoom.id),
+        doorName: getDoorName(getDoorRequiredItemId(corridor.id, upperRoom.id))
       }
     ];
   }
@@ -1222,7 +1366,8 @@ function createCorridorTransitions(
       wallEnd: leftBounds.zMax,
       locked: leftRoom.type === 'lockedDoorRoom' || getDoorRequiredItemId(corridor.id, leftRoom.id) !== undefined,
       entrance: false,
-      requiredItemId: getDoorRequiredItemId(corridor.id, leftRoom.id)
+      requiredItemId: getDoorRequiredItemId(corridor.id, leftRoom.id),
+      doorName: getDoorName(getDoorRequiredItemId(corridor.id, leftRoom.id))
     },
     {
       roomId: rightRoom.id,
@@ -1234,35 +1379,71 @@ function createCorridorTransitions(
       wallEnd: rightBounds.zMax,
       locked: rightRoom.type === 'lockedDoorRoom' || getDoorRequiredItemId(corridor.id, rightRoom.id) !== undefined,
       entrance: false,
-      requiredItemId: getDoorRequiredItemId(corridor.id, rightRoom.id)
+      requiredItemId: getDoorRequiredItemId(corridor.id, rightRoom.id),
+      doorName: getDoorName(getDoorRequiredItemId(corridor.id, rightRoom.id))
     }
   ];
 }
 
 function getDoorRequiredItemId(corridorId: string, roomId: string): string | undefined {
-  if (corridorId === 'corridor_room5_room9' && roomId === 'room5') {
+  if (corridorId === BRONZE_DOOR_CORRIDOR_ID && roomId === 'room1') {
+    return 'bronze_key';
+  }
+
+  if (corridorId === SILVER_DOOR_CORRIDOR_ID && roomId === SILVER_DOOR_ROOM_ID) {
     return 'silver_key';
   }
 
-  if (corridorId === 'corridor_room9_boss' && roomId === 'room9') {
+  if (corridorId === GOLD_DOOR_CORRIDOR_ID && roomId === GOLD_DOOR_ROOM_ID) {
     return 'gold_key';
   }
 
   return undefined;
 }
 
+function getDoorName(requiredItemId?: string): string | undefined {
+  if (requiredItemId === 'bronze_key') {
+    return 'porte de bronze';
+  }
+
+  if (requiredItemId === 'silver_key') {
+    return "porte d'argent";
+  }
+
+  if (requiredItemId === 'gold_key') {
+    return "porte d'or";
+  }
+
+  return undefined;
+}
+
 function createInteriorDoor(transition: CorridorTransition, index: number): DungeonDoorDefinition {
+  const doorId = transition.requiredItemId === 'bronze_key'
+    ? 'bronze_door'
+    : transition.requiredItemId === 'silver_key'
+      ? 'silver_door'
+      : transition.requiredItemId === 'gold_key'
+        ? 'gold_door'
+        : `interior_door_${index}`;
+
   return {
-    id: transition.entrance ? 'entrance_door' : `interior_door_${index}`,
+    id: doorId,
     center: transition.center,
     width: DOOR_WIDTH,
     height: DOOR_HEIGHT,
     depth: DOOR_DEPTH,
     rotationY: transition.rotationY,
-    obstacleId: transition.entrance ? 'door_obstacle_entrance' : `door_obstacle_interior_${index}`,
+    obstacleId: transition.requiredItemId === 'bronze_key'
+      ? 'door_obstacle_bronze'
+      : transition.requiredItemId === 'silver_key'
+        ? 'door_obstacle_silver'
+        : transition.requiredItemId === 'gold_key'
+          ? 'door_obstacle_gold'
+          : `door_obstacle_interior_${index}`,
     locked: transition.locked,
     entrance: transition.entrance,
-    requiredItemId: transition.requiredItemId
+    requiredItemId: transition.requiredItemId,
+    doorName: transition.doorName
   };
 }
 

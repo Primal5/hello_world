@@ -140,14 +140,29 @@ export class LevelLoader {
       let isUnlocked = !doorDefinition.locked;
       interactables.push({
         id: doorDefinition.id,
-        label: doorDefinition.entrance ? DISPLAY_TEXT.world.door.entranceInteractLabel : DISPLAY_TEXT.world.door.interactLabel,
+        label: doorDefinition.doorName
+          ? DISPLAY_TEXT.world.door.interactNamedLabel(doorDefinition.doorName)
+          : doorDefinition.entrance
+            ? DISPLAY_TEXT.world.door.entranceInteractLabel
+            : DISPLAY_TEXT.world.door.interactLabel,
         object3D: root,
         canInteract: () => true,
         interact: () => {
           if (!isUnlocked) {
             const requiredItemId = doorDefinition.requiredItemId;
             if (!requiredItemId || !context.player.inventory.has(requiredItemId)) {
-              if (doorDefinition.entrance) {
+              if (doorDefinition.doorName && requiredItemId) {
+                const requiredItem = this.itemDb.getById(requiredItemId);
+                if (requiredItem) {
+                  const rarityTheme = ItemVisualsService.getRarityTheme(requiredItem.rarity);
+                  context.event({
+                    message: DISPLAY_TEXT.world.door.lockedNamedItem(doorDefinition.doorName, requiredItem.name),
+                    highlights: [{ text: requiredItem.name, color: rarityTheme.color }]
+                  });
+                } else {
+                  context.event(DISPLAY_TEXT.world.door.locked);
+                }
+              } else if (doorDefinition.entrance) {
                 const requiredItem = requiredItemId ? this.itemDb.getById(requiredItemId) : undefined;
                 if (requiredItem) {
                   const rarityTheme = ItemVisualsService.getRarityTheme(requiredItem.rarity);
@@ -183,14 +198,26 @@ export class LevelLoader {
             isOpen = false;
             pivot.rotation.y = 0;
             this.collisionWorld.setObstacle(doorDefinition.obstacleId, doorDefinition.center, obstacleSize);
-            context.event(doorDefinition.entrance ? DISPLAY_TEXT.world.door.entranceClosing : DISPLAY_TEXT.world.door.closing);
+            context.event(
+              doorDefinition.doorName
+                ? DISPLAY_TEXT.world.door.closingNamed(doorDefinition.doorName)
+                : doorDefinition.entrance
+                  ? DISPLAY_TEXT.world.door.entranceClosing
+                  : DISPLAY_TEXT.world.door.closing
+            );
             return;
           }
 
           isOpen = true;
           pivot.rotation.y = this.getDoorOpenAngle(doorDefinition, context.player.position);
           this.collisionWorld.removeObstacle(doorDefinition.obstacleId);
-          context.event(doorDefinition.entrance ? DISPLAY_TEXT.world.door.entranceOpening : DISPLAY_TEXT.world.door.opening);
+          context.event(
+            doorDefinition.doorName
+              ? DISPLAY_TEXT.world.door.openingNamed(doorDefinition.doorName)
+              : doorDefinition.entrance
+                ? DISPLAY_TEXT.world.door.entranceOpening
+                : DISPLAY_TEXT.world.door.opening
+          );
         }
       });
     }

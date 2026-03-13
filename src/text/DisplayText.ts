@@ -39,13 +39,17 @@ export const DISPLAY_TEXT = {
     door: {
       entranceInteractLabel: "ouvrir ou fermer l'entrée",
       interactLabel: 'ouvrir ou fermer la porte',
+      interactNamedLabel: (doorName: string) => `ouvrir ou fermer la ${doorName}`,
       entranceLocked: "L'entrée est verrouillée. Il faut une clé.",
       entranceLockedItem: (name: string) => `L'entrée est verrouillée. Il faut ${name}.`,
       locked: 'La porte est verrouillée.',
+      lockedNamedItem: (doorName: string, itemName: string) => `La ${doorName} est verrouillée. Il faut ${itemName}.`,
       entranceClosing: "L'entrée se referme.",
       closing: 'La porte se referme.',
+      closingNamed: (doorName: string) => `La ${doorName} se referme.`,
       entranceOpening: "L'entrée s'ouvre.",
-      opening: "La porte s'ouvre."
+      opening: "La porte s'ouvre.",
+      openingNamed: (doorName: string) => `La ${doorName} s'ouvre.`
     }
   },
   items: {
