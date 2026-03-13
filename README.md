@@ -1,4 +1,4 @@
-﻿# Web FPS/RPG Starter (Three.js + React + Zustand)
+# Web FPS/RPG Starter (Three.js + React + Zustand)
 
 Starter project modulaire pour un RPG/FPS web en vue subjective.
 

@@ -1,4 +1,4 @@
-﻿import { useGameStore } from '../store/gameStore';
+import { useGameStore } from '../store/gameStore';
 import { DISPLAY_TEXT } from '../../text/DisplayText';
 
 const SIZE = 124;

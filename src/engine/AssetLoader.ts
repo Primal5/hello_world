@@ -2,19 +2,31 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
-interface CachedModel {
+export interface LoadedModel {
   scene: THREE.Object3D;
   animations: THREE.AnimationClip[];
 }
+
+interface CachedModel extends LoadedModel {}
 
 export class AssetLoader {
   private readonly gltfLoader = new GLTFLoader();
   private readonly modelCache = new Map<string, Promise<CachedModel>>();
 
   async loadModel(path: string): Promise<THREE.Object3D> {
+    const asset = await this.loadModelAsset(path);
+    return asset.scene;
+  }
+
+  async loadModelAsset(path: string): Promise<LoadedModel> {
     try {
       const cached = await this.loadAndCache(path);
-      return clone(cached.scene);
+      const scene = clone(cached.scene);
+      this.prepareScene(scene);
+      return {
+        scene,
+        animations: cached.animations
+      };
     } catch {
       const fallback = new THREE.Mesh(
         new THREE.BoxGeometry(1, 1, 1),
@@ -22,7 +34,10 @@ export class AssetLoader {
       );
       fallback.castShadow = true;
       fallback.receiveShadow = true;
-      return fallback;
+      return {
+        scene: fallback,
+        animations: []
+      };
     }
   }
 

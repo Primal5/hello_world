@@ -1,7 +1,8 @@
-﻿import * as THREE from 'three';
+import * as THREE from 'three';
 import { GAME_CONFIG } from '../core/Config';
 import { InputManager } from '../core/InputManager';
 import type { Player } from '../gameplay/player/Player';
+import { useUiStore } from '../ui/store/uiStore';
 import { CollisionWorld } from './CollisionWorld';
 
 export class FirstPersonController {
@@ -23,6 +24,7 @@ export class FirstPersonController {
     this.pitch = initialPitch;
     this.bindPointerLock();
     this.camera.rotation.order = 'YXZ';
+    this.syncCameraTransform();
   }
 
   dispose(): void {
@@ -82,6 +84,22 @@ export class FirstPersonController {
       this.player.isGrounded = false;
     }
 
+    this.syncCameraTransform();
+  }
+
+  requestPointerLock(): void {
+    if (document.pointerLockElement !== this.canvas) {
+      this.canvas.requestPointerLock();
+    }
+  }
+
+  exitPointerLock(): void {
+    if (document.pointerLockElement === this.canvas) {
+      document.exitPointerLock();
+    }
+  }
+
+  private syncCameraTransform(): void {
     this.camera.position.copy(this.player.position);
     this.camera.position.y += GAME_CONFIG.player.eyeOffset;
     this.camera.rotation.set(this.pitch, this.yaw, 0);
@@ -94,7 +112,11 @@ export class FirstPersonController {
   }
 
   private readonly onCanvasClick = (): void => {
-    this.canvas.requestPointerLock();
+    if (useUiStore.getState().dialogueBox) {
+      return;
+    }
+
+    this.requestPointerLock();
   };
 
   private readonly onPointerLockChange = (): void => {
@@ -108,5 +130,4 @@ export class FirstPersonController {
     this.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.pitch));
   };
 }
-
 
