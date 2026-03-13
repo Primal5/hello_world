@@ -25,6 +25,14 @@ export interface DungeonDoorDefinition {
   obstacleId: string;
   locked: boolean;
   entrance: boolean;
+  requiredItemId?: string;
+}
+
+export interface DungeonChestDefinition {
+  id: string;
+  roomId: string;
+  position: THREE.Vector3;
+  itemId: string;
 }
 
 export type DungeonRoomType = 'spawn' | 'normal' | 'keyRoom' | 'lockedDoorRoom' | 'boss' | 'treasure';
@@ -58,6 +66,7 @@ interface CorridorTransition {
   wallEnd: number;
   locked: boolean;
   entrance: boolean;
+  requiredItemId?: string;
 }
 
 export interface DungeonRoomNode {
@@ -90,7 +99,7 @@ export interface DungeonLayout {
   graph: DungeonGraph;
   wallSegments: DungeonWallSegment[];
   doors: DungeonDoorDefinition[];
-  chestPosition: THREE.Vector3;
+  chests: DungeonChestDefinition[];
   npcPosition: THREE.Vector3;
   exteriorGroundCenter: THREE.Vector3;
   exteriorGroundSize: THREE.Vector2;
@@ -222,7 +231,15 @@ export function generateDungeonLayout(): DungeonLayout {
   }
 
   const npcPosition = getSpawnNpcPosition(spawnRoom, entranceDoor);
-  const chestPosition = getSpawnChestPosition(spawnRoom, entranceDoor, npcPosition, DUNGEON_CONFIG.startPosition);
+  const room5 = roomById.get('room5');
+  const room9 = roomById.get('room9');
+  if (!room5 || !room9) {
+    throw new Error('Required progression rooms are missing.');
+  }
+
+  const bronzeChestPosition = getSpawnChestPosition(spawnRoom, entranceDoor, npcPosition, DUNGEON_CONFIG.startPosition);
+  const silverChestPosition = getRoomChestPosition(room5);
+  const goldChestPosition = getRoomChestPosition(room9);
 
   return {
     floorCenter: new THREE.Vector3(shell.center.x, 0, shell.center.y),
@@ -232,7 +249,11 @@ export function generateDungeonLayout(): DungeonLayout {
     graph,
     wallSegments: normalizedWallSegments,
     doors,
-    chestPosition,
+    chests: [
+      { id: 'bronze_key_chest', roomId: 'spawn', position: bronzeChestPosition, itemId: 'bronze_key' },
+      { id: 'silver_key_chest', roomId: 'room5', position: silverChestPosition, itemId: 'silver_key' },
+      { id: 'gold_key_chest', roomId: 'room9', position: goldChestPosition, itemId: 'gold_key' }
+    ],
     npcPosition,
     exteriorGroundCenter: new THREE.Vector3(ENTRANCE_X, 0, -17),
     exteriorGroundSize: new THREE.Vector2(36, 34)
@@ -962,6 +983,16 @@ function randomBetween(min: number, max: number): number {
   return min + Math.random() * (max - min);
 }
 
+function getRoomChestPosition(room: DungeonRoomNode): THREE.Vector3 {
+  const bounds = getRoomWorldBounds(room);
+  const margin = 1;
+  return new THREE.Vector3(
+    randomBetween(bounds.xMin + margin, bounds.xMax - margin),
+    0,
+    randomBetween(bounds.zMin + margin, bounds.zMax - margin)
+  );
+}
+
 function getCorridorRect(fromRoom: DungeonRoomNode, toRoom: DungeonRoomNode, corridor: DungeonCorridorEdge): Rect {
   const fromBounds = getRoomWorldBounds(fromRoom);
   const toBounds = getRoomWorldBounds(toRoom);
@@ -1140,7 +1171,8 @@ function createCorridorTransitions(
           wallStart: spawnBounds.xMin,
           wallEnd: spawnBounds.xMax,
           locked: true,
-          entrance: true
+          entrance: true,
+          requiredItemId: 'bronze_key'
         }
       ];
     }
@@ -1154,8 +1186,9 @@ function createCorridorTransitions(
         openingEnd: corridorRect.xMax,
         wallStart: lowerBounds.xMin,
         wallEnd: lowerBounds.xMax,
-        locked: lowerRoom.type === 'lockedDoorRoom',
-        entrance: false
+        locked: lowerRoom.type === 'lockedDoorRoom' || getDoorRequiredItemId(corridor.id, lowerRoom.id) !== undefined,
+        entrance: false,
+        requiredItemId: getDoorRequiredItemId(corridor.id, lowerRoom.id)
       },
       {
         roomId: upperRoom.id,
@@ -1165,8 +1198,9 @@ function createCorridorTransitions(
         openingEnd: corridorRect.xMax,
         wallStart: upperBounds.xMin,
         wallEnd: upperBounds.xMax,
-        locked: upperRoom.type === 'lockedDoorRoom',
-        entrance: false
+        locked: upperRoom.type === 'lockedDoorRoom' || getDoorRequiredItemId(corridor.id, upperRoom.id) !== undefined,
+        entrance: false,
+        requiredItemId: getDoorRequiredItemId(corridor.id, upperRoom.id)
       }
     ];
   }
@@ -1186,8 +1220,9 @@ function createCorridorTransitions(
       openingEnd: corridorRect.zMax,
       wallStart: leftBounds.zMin,
       wallEnd: leftBounds.zMax,
-      locked: leftRoom.type === 'lockedDoorRoom',
-      entrance: false
+      locked: leftRoom.type === 'lockedDoorRoom' || getDoorRequiredItemId(corridor.id, leftRoom.id) !== undefined,
+      entrance: false,
+      requiredItemId: getDoorRequiredItemId(corridor.id, leftRoom.id)
     },
     {
       roomId: rightRoom.id,
@@ -1197,10 +1232,23 @@ function createCorridorTransitions(
       openingEnd: corridorRect.zMax,
       wallStart: rightBounds.zMin,
       wallEnd: rightBounds.zMax,
-      locked: rightRoom.type === 'lockedDoorRoom',
-      entrance: false
+      locked: rightRoom.type === 'lockedDoorRoom' || getDoorRequiredItemId(corridor.id, rightRoom.id) !== undefined,
+      entrance: false,
+      requiredItemId: getDoorRequiredItemId(corridor.id, rightRoom.id)
     }
   ];
+}
+
+function getDoorRequiredItemId(corridorId: string, roomId: string): string | undefined {
+  if (corridorId === 'corridor_room5_room9' && roomId === 'room5') {
+    return 'silver_key';
+  }
+
+  if (corridorId === 'corridor_room9_boss' && roomId === 'room9') {
+    return 'gold_key';
+  }
+
+  return undefined;
 }
 
 function createInteriorDoor(transition: CorridorTransition, index: number): DungeonDoorDefinition {
@@ -1213,7 +1261,8 @@ function createInteriorDoor(transition: CorridorTransition, index: number): Dung
     rotationY: transition.rotationY,
     obstacleId: transition.entrance ? 'door_obstacle_entrance' : `door_obstacle_interior_${index}`,
     locked: transition.locked,
-    entrance: transition.entrance
+    entrance: transition.entrance,
+    requiredItemId: transition.requiredItemId
   };
 }
 
@@ -1411,45 +1460,3 @@ function verticalWall(id: string, x: number, zMin: number, zMax: number): Dungeo
     line: x
   };
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
