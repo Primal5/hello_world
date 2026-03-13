@@ -8,8 +8,9 @@ function renderDialogueMessage(message: string, highlights?: JournalHighlight[])
 
   const segments: ReactNode[] = [];
   let cursor = 0;
+  const matchedHighlights = new Set<number>();
 
-  for (const highlight of highlights) {
+  for (const [highlightIndex, highlight] of highlights.entries()) {
     const index = message.indexOf(highlight.text, cursor);
     if (index === -1) {
       continue;
@@ -30,13 +31,34 @@ function renderDialogueMessage(message: string, highlights?: JournalHighlight[])
       </span>
     );
     cursor = end;
+    matchedHighlights.add(highlightIndex);
   }
 
   if (cursor < message.length) {
     segments.push(<Fragment key={`text-${cursor}`}>{message.slice(cursor)}</Fragment>);
   }
 
-  return segments.length > 0 ? segments : message;
+  const missingHighlights = highlights.filter((_, index) => !matchedHighlights.has(index));
+  if (missingHighlights.length > 0) {
+    if (segments.length === 0) {
+      segments.push(<Fragment key="text-full">{message}</Fragment>);
+    }
+
+    segments.push(<Fragment key="fallback-gap"> </Fragment>);
+    missingHighlights.forEach((highlight, index) => {
+      segments.push(
+        <span
+          className="dialogue-window__highlight"
+          key={`fallback-highlight-${index}-${highlight.text}`}
+          style={{ color: highlight.color }}
+        >
+          {highlight.text}
+        </span>
+      );
+    });
+  }
+
+  return segments;
 }
 
 export function DialogueWindow(): JSX.Element | null {

@@ -47,8 +47,9 @@ public/
 
 - Déplacement FPS (WASD + souris + saut espace + gravité).
 - Prompt d’interaction au centre (`E`).
-- Coffre: donne `rusty_key`.
-- Porte: verrouillée sans clé, s’ouvre avec clé.
+- Coffre de départ: donne `rusty_key`.
+- Progression par zones verrouillées: `rusty_key`, `bronze_key`, `silver_key`, `gold_key`.
+- Portes nommées: entrée, bronze, argent, or.
 - PNJ: affiche un dialogue dans le journal.
 - Inventaire ouvrable avec `I`.
 
@@ -79,12 +80,12 @@ Exemples:
 Exemple:
 
 ```ts
-npc: {
+const npc = {
   path: '/assets/models/meshy/robot-guide/scene.gltf',
   scale: [0.75, 0.75, 0.75],
   rotation: [0, Math.PI, 0],
   offset: [0, 0, 0]
-}
+};
 ```
 
 ### Ce que le projet gère maintenant
@@ -134,14 +135,29 @@ Base prête pour ajouter:
 
 ### Règles de création du donjon
 
-- Génération procédurale avec une grille de **20 x 20 cellules** sur une zone de **100 unités**.
+- Génération procédurale avec une grille de **48 x 48 cellules** sur une zone de **160 unités**.
 - Le générateur tente jusqu’à **200 essais** pour produire un graphe valide de salles/couloirs.
-- La salle de départ (`spawn`) est fixée en bas de la carte puis les salles suivantes sont placées relativement (nord/sud/est/ouest), avec contraintes de taille et de zones autorisées.
+- La salle de départ (`spawn`) est fixée en bas de la carte.
+- Trois zones de progression sont générées ensuite, chacune avec **20 salles garanties**:
+  - zone bronze
+  - zone argent
+  - zone or
+- Le boss est généré après la zone or, derrière la porte d’or.
+- Les salles d’une zone sont placées relativement (nord/sud/est/ouest) dans une bande spatiale dédiée, avec contraintes de taille et de zone autorisée.
 - Les salles ne peuvent pas se chevaucher ni se toucher.
 - Les couloirs sont générés à partir des recouvrements entre salles, avec des largeurs choisies parmi **0.5 / 0.75 / 1** (selon la largeur maximale autorisée du couloir).
-- Les portes intérieures sont créées aux transitions salle/couloir, avec état verrouillé/déverrouillé selon le type de branche.
+- Les portes intérieures sont créées aux transitions salle/couloir.
+- Les portes spéciales délimitent la progression entre zones:
+  - porte d’entrée entre `spawn` et la zone bronze
+  - porte de bronze entre les zones bronze et argent
+  - porte d’argent entre les zones argent et or
+  - porte d’or entre la zone or et le boss
 - Le PNJ de départ est positionné près de la porte d’entrée du donjon.
 - Le coffre de départ est placé aléatoirement dans la salle `spawn`, en respectant des distances minimales vis-à-vis de la porte d’entrée, du PNJ et du point de départ joueur.
+- Les coffres de progression sont placés aléatoirement dans leur zone:
+  - `bronze_key` dans la zone bronze
+  - `silver_key` dans la zone argent
+  - `gold_key` dans la zone or
 
 ### Objets utilisables (objets)
 
@@ -150,13 +166,34 @@ Base prête pour ajouter:
 - **Clé rouillée** (`rusty_key`)
   - Type : objet de quête
   - Rareté : `quest`
-  - Description : « Une vieille clé qui semble ouvrir une porte ancienne. »
+  - Description : « Ouvre la porte d’entrée vers le secteur de départ. »
   - Obtention : dans le coffre de départ
   - Utilisation : consommée pour déverrouiller la porte d’entrée
+
+- **Clé de bronze** (`bronze_key`)
+  - Type : objet de quête
+  - Rareté : `quest`
+  - Description : « Ouvre la porte vers le secteur bronze. »
+  - Obtention : dans un coffre aléatoire de la zone bronze
+  - Utilisation : consommée pour déverrouiller la porte de bronze
+
+- **Clé d’argent** (`silver_key`)
+  - Type : objet de quête
+  - Rareté : `quest`
+  - Description : « Ouvre la porte vers la zone argent. »
+  - Obtention : dans un coffre aléatoire de la zone argent
+  - Utilisation : consommée pour déverrouiller la porte d’argent
+
+- **Clé d’or** (`gold_key`)
+  - Type : objet de quête
+  - Rareté : `quest`
+  - Description : « Ouvre la porte vers la zone or. »
+  - Obtention : dans un coffre aléatoire de la zone or
+  - Utilisation : consommée pour déverrouiller la porte d’or
 
 ### Objets utilisables liés aux PNJ
 
 - Le PNJ actuel (garde du didacticiel) ne consomme pas d’objet directement.
-- Il indique cependant que la **Clé rouillée** permet d’ouvrir la vieille porte.
+- Il indique cependant que la **Clé rouillée** permet d’ouvrir la porte d’entrée.
 - Aucun autre objet utilisable spécifique aux PNJ n’est défini pour l’instant.
 

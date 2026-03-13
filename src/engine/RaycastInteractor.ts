@@ -4,21 +4,23 @@ import type { Interactable } from '../gameplay/interaction/Interactable';
 export class RaycastInteractor {
   private readonly raycaster = new THREE.Raycaster();
 
-  pick(camera: THREE.Camera, interactables: Interactable[], maxDistance: number): Interactable | null {
+  pick(
+    camera: THREE.Camera,
+    scene: THREE.Scene,
+    interactables: Interactable[],
+    maxDistance: number
+  ): Interactable | null {
     this.raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
 
-    const hits = this.raycaster.intersectObjects(
-      interactables.map((interactable) => interactable.object3D),
-      true
-    );
+    const hits = this.raycaster.intersectObjects(scene.children, true);
 
     for (const hit of hits) {
-      if (hit.distance > maxDistance) continue;
+      if (hit.distance > maxDistance) {
+        return null;
+      }
 
       const owner = interactables.find((interactable) => this.belongsTo(hit.object, interactable.object3D));
-      if (owner) {
-        return owner;
-      }
+      return owner ?? null;
     }
 
     return null;

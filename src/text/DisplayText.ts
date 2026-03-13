@@ -30,7 +30,8 @@ export const DISPLAY_TEXT = {
       obtainedItem: (name: string) => `Vous obtenez : ${name}.`
     },
     item: {
-      used: (name: string) => `${name} utilisée.`
+      used: (name: string) => `${name} utilisée.`,
+      usedOnDoor: (name: string, doorName: string) => `${name} utilisée sur la ${doorName}.`
     },
     npc: {
       interactLabel: 'parler au garde du didacticiel',
@@ -75,7 +76,7 @@ export const DISPLAY_TEXT = {
     }
   },
   dialogues: {
-    npcGuardHint: (itemName: string) => `${itemName} ouvre la prochaine porte verrouillée.`
+    npcGuardHint: (itemName: string) => `Il vous faut ${itemName} pour ouvrir la porte d'entrée.\nElle se trouve dans le coffre.`
   }
 } as const;
 

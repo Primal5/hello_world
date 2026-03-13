@@ -37,6 +37,7 @@ export interface DungeonChestDefinition {
 }
 
 export type DungeonRoomType = 'spawn' | 'normal' | 'keyRoom' | 'lockedDoorRoom' | 'boss' | 'treasure';
+export type DungeonZoneId = 'spawn' | 'bronze' | 'silver' | 'gold' | 'boss';
 
 interface CellCoord {
   col: number;
@@ -74,6 +75,7 @@ interface CorridorTransition {
 export interface DungeonRoomNode {
   id: string;
   type: DungeonRoomType;
+  zoneId: DungeonZoneId;
   connections: string[];
   centerCell: CellCoord;
   bounds: RoomBounds;
@@ -110,6 +112,7 @@ export interface DungeonLayout {
 interface RoomSeed {
   id: string;
   type: DungeonRoomType;
+  zoneId: DungeonZoneId;
   bounds: RoomBounds;
 }
 
@@ -155,8 +158,19 @@ interface Rect {
   zMax: number;
 }
 
-const DUNGEON_SIZE = 100;
-const GRID_SIZE = 20;
+interface ZoneRegion {
+  colRange: [number, number];
+  rowRange: [number, number];
+}
+
+interface ZoneGenerationResult {
+  roomIds: string[];
+  entryRoomId: string;
+  exitRoomId: string;
+}
+
+const DUNGEON_SIZE = 160;
+const GRID_SIZE = 48;
 const CELL_SIZE = DUNGEON_SIZE / GRID_SIZE;
 const SUBDIVISIONS = 4;
 const UNIT_SIZE = CELL_SIZE / SUBDIVISIONS;
@@ -168,6 +182,8 @@ const WALL_THICKNESS = 0.6;
 const DOOR_WIDTH = 1.4043151140213013;
 const DOOR_HEIGHT = 2.000000298023224;
 const DOOR_DEPTH = 0.21565186977386475;
+const MIN_ROOM_DIMENSION_CELLS = 2;
+const MIN_CORRIDOR_WIDTH_CELLS = 0.75;
 const ENTRANCE_COLUMN = Math.floor(GRID_SIZE / 2);
 const ENTRANCE_X = MIN_X + ENTRANCE_COLUMN * CELL_SIZE + CELL_SIZE / 2;
 const ENTRANCE_Z = MIN_Z;
@@ -176,22 +192,40 @@ const VERTICAL_PRIORITY = 0;
 
 
 const ENTRANCE_DOOR_CORRIDOR_ID = 'corridor_spawn_room1';
-const BRONZE_DOOR_CORRIDOR_ID = 'corridor_room3_room5';
-const SILVER_DOOR_CORRIDOR_ID = 'corridor_room5_room9';
-const GOLD_DOOR_CORRIDOR_ID = 'corridor_room9_boss';
-const BRONZE_DOOR_ROOM_ID = 'room5';
-const SILVER_DOOR_ROOM_ID = 'room9';
-const GOLD_DOOR_ROOM_ID = 'boss';
+const BRONZE_DOOR_CORRIDOR_ID = 'corridor_bronze_silver';
+const SILVER_DOOR_CORRIDOR_ID = 'corridor_silver_gold';
+const GOLD_DOOR_CORRIDOR_ID = 'corridor_gold_boss';
+const ZONE_ROOM_TARGET = 20;
+const BRONZE_ZONE_ID = 'bronze' as const;
+const SILVER_ZONE_ID = 'silver' as const;
+const GOLD_ZONE_ID = 'gold' as const;
+const ZONE_REGIONS: Record<'bronze' | 'silver' | 'gold', ZoneRegion> = {
+  bronze: {
+    colRange: [4, 38],
+    rowRange: [3, 14]
+  },
+  silver: {
+    colRange: [4, 38],
+    rowRange: [16, 28]
+  },
+  gold: {
+    colRange: [4, 38],
+    rowRange: [29, 41]
+  }
+};
 const MIN_KEY_DISTANCE_FROM_SPAWN = 5;
 const MIN_KEY_DISTANCE_FROM_ENTRANCE = 5;
 const MIN_KEY_DISTANCE_FROM_PREVIOUS_DOOR = 5;
+const SPAWN_NPC_X_OFFSET = 2;
+const SPAWN_NPC_Z_OFFSET = 0.9;
+const SPAWN_NPC_WALL_MARGIN = 0.75;
 
 export const DUNGEON_CONFIG = {
   size: DUNGEON_SIZE,
   height: WALL_HEIGHT,
   ceilingY: WALL_HEIGHT,
-  startPosition: new THREE.Vector3(ENTRANCE_X, 0, 3),
-  startYaw: Math.PI
+  startPosition: new THREE.Vector3(ENTRANCE_X, 0, -3),
+  startYaw: 0
 } as const;
 
 export function generateDungeonLayout(): DungeonLayout {
@@ -244,7 +278,8 @@ export function generateDungeonLayout(): DungeonLayout {
     throw new Error('Spawn room or entrance door is missing.');
   }
 
-  const npcPosition = getSpawnNpcPosition(spawnRoom, entranceDoor, DUNGEON_CONFIG.startPosition);
+  const layoutStartPosition = mirrorVector3OnZ(DUNGEON_CONFIG.startPosition);
+  const npcPosition = getSpawnNpcPosition(spawnRoom, entranceDoor);
   const entranceDoorWithKey = getRequiredDoor(doors, 'rusty_key');
   const bronzeDoor = getRequiredDoor(doors, 'bronze_key');
   const silverDoor = getRequiredDoor(doors, 'silver_key');
@@ -253,18 +288,18 @@ export function generateDungeonLayout(): DungeonLayout {
     spawnRoom,
     entranceDoor,
     npcPosition,
-    DUNGEON_CONFIG.startPosition,
+    layoutStartPosition,
     MIN_KEY_DISTANCE_FROM_SPAWN
   );
 
   const bronzeChestRoom = pickBronzeChestRoom(graph, roomById);
-  const silverChestRoom = pickSilverChestRoom(graph, roomById, spawnRoom.id);
+  const silverChestRoom = pickSilverChestRoom(graph, roomById);
   const goldChestRoom = pickGoldChestRoom(graph, roomById);
   const bronzeChestPosition = getRoomChestPositionWithClearance(bronzeChestRoom, [entranceDoorWithKey.center], MIN_KEY_DISTANCE_FROM_ENTRANCE);
   const silverChestPosition = getRoomChestPositionWithClearance(silverChestRoom, [bronzeDoor.center], MIN_KEY_DISTANCE_FROM_PREVIOUS_DOOR);
   const goldChestPosition = getRoomChestPositionWithClearance(goldChestRoom, [silverDoor.center], MIN_KEY_DISTANCE_FROM_PREVIOUS_DOOR);
 
-  return {
+  return mirrorDungeonLayout({
     floorCenter: new THREE.Vector3(shell.center.x, 0, shell.center.y),
     ceilingCenter: new THREE.Vector3(shell.center.x, WALL_HEIGHT, shell.center.y),
     floorSize: shell.size,
@@ -281,7 +316,7 @@ export function generateDungeonLayout(): DungeonLayout {
     npcPosition,
     exteriorGroundCenter: new THREE.Vector3(ENTRANCE_X, 0, -17),
     exteriorGroundSize: new THREE.Vector2(36, 34)
-  };
+  });
 }
 function createDungeonGraph(): DungeonGraph {
   let lastError: unknown = null;
@@ -305,17 +340,19 @@ function tryCreateDungeonGraph(): DungeonGraph | null {
   const roomSeeds: RoomSeed[] = [];
   const corridorPlans: CorridorPlanSpec[] = [];
 
-  const addRoom = (id: string, type: DungeonRoomType, bounds: RoomBounds): RoomBounds => {
-    roomSeeds.push({ id, type, bounds });
+  const addRoom = (id: string, type: DungeonRoomType, zoneId: DungeonZoneId, bounds: RoomBounds): RoomBounds => {
+    roomSeeds.push({ id, type, zoneId, bounds });
     return bounds;
   };
 
   const addRelativeRoom = (config: {
     id: string;
     type: DungeonRoomType;
+    zoneId: DungeonZoneId;
     from: string;
     maxWidth: number;
     options: RelativeRoomOptions;
+    corridorId?: string;
     required?: boolean;
   }): RoomBounds | null => {
     const bounds = tryCreateRelativeRoomBounds(roomSeeds, config.options);
@@ -327,9 +364,9 @@ function tryCreateDungeonGraph(): DungeonGraph | null {
       throw new Error('Unable to place ' + config.id);
     }
 
-    addRoom(config.id, config.type, bounds);
+    addRoom(config.id, config.type, config.zoneId, bounds);
     corridorPlans.push({
-      id: 'corridor_' + config.from + '_' + config.id,
+      id: config.corridorId ?? ('corridor_' + config.from + '_' + config.id),
       from: config.from,
       to: config.id,
       axis: config.options.direction === 'east' || config.options.direction === 'west' ? 'x' : 'z',
@@ -341,368 +378,158 @@ function tryCreateDungeonGraph(): DungeonGraph | null {
   const spawnBounds = addRoom(
     'spawn',
     'spawn',
+    'spawn',
     createSeedRoomBounds({
-      colRange: [8, 10],
+      colRange: [22, 22],
       rowRange: [0, 0],
-      widthRange: [3, 3],
+      widthRange: [4, 4],
       heightRange: [2, 2]
     })
   );
 
-  const room1Bounds = addRelativeRoom({
-    id: 'room1',
+  const bronzeEntryId = createZoneRoomId(BRONZE_ZONE_ID, 1);
+  const bronzeEntryBounds = addRelativeRoom({
+    id: bronzeEntryId,
     type: 'normal',
+    zoneId: BRONZE_ZONE_ID,
     from: 'spawn',
+    corridorId: ENTRANCE_DOOR_CORRIDOR_ID,
     maxWidth: 1,
     options: {
       base: spawnBounds,
       direction: 'north',
       gapRange: [1, 1],
-      widthRange: [2, 2],
-      heightRange: [2, 2],
-      lateralDrift: 1,
-      colRange: [7, 10],
-      rowRange: [3, 5]
+      widthRange: [2, 3],
+      heightRange: [2, 3],
+      lateralDrift: 2,
+      colRange: ZONE_REGIONS.bronze.colRange,
+      rowRange: [ZONE_REGIONS.bronze.rowRange[0], ZONE_REGIONS.bronze.rowRange[0] + 2]
     }
   });
-  if (!room1Bounds) {
+  if (!bronzeEntryBounds) {
     return null;
   }
 
-  const room2Bounds = addRelativeRoom({
-    id: 'room2',
+  const bronzeZone = generateZoneRooms({
+    zoneId: BRONZE_ZONE_ID,
+    roomCount: ZONE_ROOM_TARGET,
+    region: ZONE_REGIONS.bronze,
+    entryRoomId: bronzeEntryId,
+    entryBounds: bronzeEntryBounds,
+    exitDirections: ['north', 'north', 'north'],
+    roomSeeds,
+    corridorPlans,
+    addRelativeRoom
+  });
+  if (!bronzeZone) {
+    return null;
+  }
+
+  const bronzeExitBounds = getRoomSeedBounds(roomSeeds, bronzeZone.exitRoomId);
+  const silverEntryId = createZoneRoomId(SILVER_ZONE_ID, 1);
+  const silverEntryBounds = addRelativeRoom({
+    id: silverEntryId,
     type: 'normal',
-    from: 'room1',
-    maxWidth: 0.75,
-    options: {
-      base: room1Bounds,
-      direction: 'west',
-      gapRange: [1, 1],
-      widthRange: [2, 3],
-      heightRange: [2, 3],
-      lateralDrift: 1,
-      colRange: [3, 7],
-      rowRange: [3, 6]
-    }
-  });
-  if (!room2Bounds) {
-    return null;
-  }
-
-  const room3Bounds = addRelativeRoom({
-    id: 'room3',
-    type: 'treasure',
-    from: 'room1',
-    maxWidth: 0.75,
-    options: {
-      base: room1Bounds,
-      direction: 'east',
-      gapRange: [1, 1],
-      widthRange: [2, 3],
-      heightRange: [2, 3],
-      lateralDrift: 1,
-      colRange: [11, 14],
-      rowRange: [3, 6]
-    }
-  });
-  if (!room3Bounds) {
-    return null;
-  }
-
-  const room4Bounds = addRelativeRoom({
-    id: 'room4',
-    type: 'normal',
-    from: 'room2',
-    maxWidth: 0.75,
-    options: {
-      base: room2Bounds,
-      direction: 'north',
-      gapRange: [1, 1],
-      widthRange: [2, 3],
-      heightRange: [2, 3],
-      lateralDrift: 1,
-      colRange: [2, 7],
-      rowRange: [5, 10]
-    }
-  });
-  if (!room4Bounds) {
-    return null;
-  }
-
-  const room5Bounds = addRelativeRoom({
-    id: 'room5',
-    type: 'keyRoom',
-    from: 'room3',
+    zoneId: SILVER_ZONE_ID,
+    from: bronzeZone.exitRoomId,
+    corridorId: BRONZE_DOOR_CORRIDOR_ID,
     maxWidth: 1,
     options: {
-      base: room3Bounds,
-      direction: 'north',
-      gapRange: [1, 1],
-      widthRange: [2, 2],
-      heightRange: [2, 2],
-      lateralDrift: 1,
-      colRange: [11, 14],
-      rowRange: [5, 10]
-    }
-  });
-  if (!room5Bounds) {
-    return null;
-  }
-
-  const room6Bounds = addRelativeRoom({
-    id: 'room6',
-    type: 'treasure',
-    from: 'room4',
-    maxWidth: 0.75,
-    options: {
-      base: room4Bounds,
-      direction: 'west',
-      gapRange: [1, 1],
-      widthRange: [2, 3],
-      heightRange: [2, 3],
-      lateralDrift: 1,
-      colRange: [1, 4],
-      rowRange: [5, 10]
-    }
-  });
-  if (!room6Bounds) {
-    return null;
-  }
-
-  const room7Bounds = addRelativeRoom({
-    id: 'room7',
-    type: 'normal',
-    from: 'room5',
-    maxWidth: 0.75,
-    options: {
-      base: room5Bounds,
-      direction: 'east',
-      gapRange: [1, 1],
-      widthRange: [2, 3],
-      heightRange: [2, 3],
-      lateralDrift: 1,
-      colRange: [15, 17],
-      rowRange: [5, 10]
-    }
-  });
-  if (!room7Bounds) {
-    return null;
-  }
-
-  const room8Bounds = addRelativeRoom({
-    id: 'room8',
-    type: 'normal',
-    from: 'room4',
-    maxWidth: 0.75,
-    options: {
-      base: room4Bounds,
+      base: bronzeExitBounds,
       direction: 'north',
       gapRange: [1, 1],
       widthRange: [2, 3],
       heightRange: [2, 3],
-      lateralDrift: 1,
-      colRange: [2, 7],
-      rowRange: [8, 13]
+      lateralDrift: 2,
+      colRange: ZONE_REGIONS.silver.colRange,
+      rowRange: [ZONE_REGIONS.silver.rowRange[0], ZONE_REGIONS.silver.rowRange[0] + 2]
     }
   });
-  if (!room8Bounds) {
+  if (!silverEntryBounds) {
     return null;
   }
 
-  const room9Bounds = addRelativeRoom({
-    id: 'room9',
-    type: 'lockedDoorRoom',
-    from: 'room5',
-    maxWidth: 0.75,
-    options: {
-      base: room5Bounds,
-      direction: 'north',
-      gapRange: [1, 1],
-      widthRange: [2, 2],
-      heightRange: [2, 2],
-      lateralDrift: 1,
-      colRange: [11, 14],
-      rowRange: [8, 13]
-    }
+  const silverZone = generateZoneRooms({
+    zoneId: SILVER_ZONE_ID,
+    roomCount: ZONE_ROOM_TARGET,
+    region: ZONE_REGIONS.silver,
+    entryRoomId: silverEntryId,
+    entryBounds: silverEntryBounds,
+    exitDirections: ['north', 'north', 'north'],
+    roomSeeds,
+    corridorPlans,
+    addRelativeRoom
   });
-  if (!room9Bounds) {
+  if (!silverZone) {
     return null;
   }
 
-  const room10Bounds = addRelativeRoom({
-    id: 'room10',
+  const silverExitBounds = getRoomSeedBounds(roomSeeds, silverZone.exitRoomId);
+  const goldEntryId = createZoneRoomId(GOLD_ZONE_ID, 1);
+  const goldEntryBounds = addRelativeRoom({
+    id: goldEntryId,
     type: 'normal',
-    from: 'room8',
-    maxWidth: 0.75,
+    zoneId: GOLD_ZONE_ID,
+    from: silverZone.exitRoomId,
+    corridorId: SILVER_DOOR_CORRIDOR_ID,
+    maxWidth: 1,
     options: {
-      base: room8Bounds,
-      direction: 'east',
-      gapRange: [1, 1],
-      widthRange: [2, 3],
-      heightRange: [2, 3],
-      lateralDrift: 1,
-      colRange: [8, 11],
-      rowRange: [8, 13]
-    }
-  });
-  if (!room10Bounds) {
-    return null;
-  }
-
-  const room11Bounds = addRelativeRoom({
-    id: 'room11',
-    type: 'treasure',
-    from: 'room8',
-    maxWidth: 0.75,
-    options: {
-      base: room8Bounds,
-      direction: 'west',
-      gapRange: [1, 1],
-      widthRange: [2, 3],
-      heightRange: [2, 3],
-      lateralDrift: 1,
-      colRange: [1, 3],
-      rowRange: [8, 13]
-    }
-  });
-  if (!room11Bounds) {
-    return null;
-  }
-
-  const room12Bounds = addRelativeRoom({
-    id: 'room12',
-    type: 'normal',
-    from: 'room10',
-    maxWidth: 0.75,
-    options: {
-      base: room10Bounds,
+      base: silverExitBounds,
       direction: 'north',
       gapRange: [1, 1],
       widthRange: [2, 3],
       heightRange: [2, 3],
-      lateralDrift: 1,
-      colRange: [8, 11],
-      rowRange: [11, 17]
+      lateralDrift: 2,
+      colRange: ZONE_REGIONS.gold.colRange,
+      rowRange: [ZONE_REGIONS.gold.rowRange[0], ZONE_REGIONS.gold.rowRange[0] + 2]
     }
   });
-  if (!room12Bounds) {
+  if (!goldEntryBounds) {
     return null;
   }
 
-  const room13Bounds = addRelativeRoom({
-    id: 'room13',
-    type: 'normal',
-    from: 'room11',
-    maxWidth: 0.75,
-    options: {
-      base: room11Bounds,
-      direction: 'north',
-      gapRange: [1, 1],
-      widthRange: [2, 3],
-      heightRange: [2, 3],
-      lateralDrift: 1,
-      colRange: [1, 3],
-      rowRange: [11, 17]
-    }
+  const goldZone = generateZoneRooms({
+    zoneId: GOLD_ZONE_ID,
+    roomCount: ZONE_ROOM_TARGET,
+    region: ZONE_REGIONS.gold,
+    entryRoomId: goldEntryId,
+    entryBounds: goldEntryBounds,
+    exitDirections: ['east', 'east', 'east'],
+    roomSeeds,
+    corridorPlans,
+    addRelativeRoom
   });
-  if (!room13Bounds) {
+  if (!goldZone) {
     return null;
   }
 
+  const goldExitBounds = getRoomSeedBounds(roomSeeds, goldZone.exitRoomId);
   const bossBounds = addRelativeRoom({
     id: 'boss',
     type: 'boss',
-    from: 'room9',
+    zoneId: 'boss',
+    from: goldZone.exitRoomId,
+    corridorId: GOLD_DOOR_CORRIDOR_ID,
     maxWidth: 1,
     options: {
-      base: room9Bounds,
+      base: goldExitBounds,
       direction: 'east',
       gapRange: [1, 1],
-      widthRange: [2, 3],
+      widthRange: [3, 4],
       heightRange: [2, 3],
-      lateralDrift: 1,
-      colRange: [15, 16],
-      rowRange: [8, 13]
+      lateralDrift: 2,
+      colRange: [40, 44],
+      rowRange: [31, 42]
     }
   });
   if (!bossBounds) {
     return null;
   }
 
-  addRelativeRoom({
-    id: 'room14',
-    type: 'treasure',
-    from: 'room12',
-    maxWidth: 0.75,
-    options: {
-      base: room12Bounds,
-      direction: 'east',
-      gapRange: [1, 1],
-      widthRange: [1, 2],
-      heightRange: [1, 2],
-      lateralDrift: 1,
-      colRange: [12, 15],
-      rowRange: [11, 17]
-    },
-    required: false
-  });
-
-  addRelativeRoom({
-    id: 'room15',
-    type: 'normal',
-    from: 'room13',
-    maxWidth: 0.75,
-    options: {
-      base: room13Bounds,
-      direction: 'east',
-      gapRange: [1, 1],
-      widthRange: [1, 2],
-      heightRange: [1, 2],
-      lateralDrift: 1,
-      colRange: [5, 8],
-      rowRange: [11, 17]
-    },
-    required: false
-  });
-
-  addRelativeRoom({
-    id: 'room16',
-    type: 'normal',
-    from: 'room3',
-    maxWidth: 0.75,
-    options: {
-      base: room3Bounds,
-      direction: 'east',
-      gapRange: [1, 1],
-      widthRange: [1, 1],
-      heightRange: [1, 2],
-      lateralDrift: 1,
-      colRange: [15, 17],
-      rowRange: [3, 6]
-    },
-    required: false
-  });
-
-  addRelativeRoom({
-    id: 'room17',
-    type: 'treasure',
-    from: 'room2',
-    maxWidth: 0.75,
-    options: {
-      base: room2Bounds,
-      direction: 'west',
-      gapRange: [1, 1],
-      widthRange: [1, 1],
-      heightRange: [1, 2],
-      lateralDrift: 1,
-      colRange: [1, 4],
-      rowRange: [3, 6]
-    },
-    required: false
-  });
   const rooms = roomSeeds.map<DungeonRoomNode>((seed) => ({
     id: seed.id,
     type: seed.type,
+    zoneId: seed.zoneId,
     connections: [],
     centerCell: getRoomCenter(seed.bounds),
     bounds: seed.bounds
@@ -731,6 +558,215 @@ function tryCreateDungeonGraph(): DungeonGraph | null {
   });
 
   return { rooms, corridors };
+}
+
+function createZoneRoomId(zoneId: Exclude<DungeonZoneId, 'spawn' | 'boss'>, index: number): string {
+  return `${zoneId}_${String(index).padStart(2, '0')}`;
+}
+
+function getRoomSeedBounds(roomSeeds: RoomSeed[], roomId: string): RoomBounds {
+  const seed = roomSeeds.find((candidate) => candidate.id === roomId);
+  if (!seed) {
+    throw new Error('Missing room seed for ' + roomId);
+  }
+
+  return seed.bounds;
+}
+
+function generateZoneRooms(config: {
+  zoneId: Exclude<DungeonZoneId, 'spawn' | 'boss'>;
+  roomCount: number;
+  region: ZoneRegion;
+  entryRoomId: string;
+  entryBounds: RoomBounds;
+  exitDirections: Array<'north' | 'south' | 'east' | 'west'>;
+  roomSeeds: RoomSeed[];
+  corridorPlans: CorridorPlanSpec[];
+  addRelativeRoom: (config: {
+    id: string;
+    type: DungeonRoomType;
+    zoneId: DungeonZoneId;
+    from: string;
+    maxWidth: number;
+    options: RelativeRoomOptions;
+    corridorId?: string;
+    required?: boolean;
+  }) => RoomBounds | null;
+}): ZoneGenerationResult | null {
+  const roomIds = [config.entryRoomId];
+  let exitRoomId = config.entryRoomId;
+  let currentParentId = config.entryRoomId;
+  let currentParentBounds = config.entryBounds;
+
+  for (const direction of config.exitDirections) {
+    const roomId = createZoneRoomId(config.zoneId, roomIds.length + 1);
+    const bounds = config.addRelativeRoom({
+      id: roomId,
+      type: 'normal',
+      zoneId: config.zoneId,
+      from: currentParentId,
+      maxWidth: direction === 'north' || direction === 'south' ? 1 : 0.75,
+      options: createZoneRelativeOptions(currentParentBounds, config.region, direction, 'core')
+    });
+    if (!bounds) {
+      return null;
+    }
+
+    roomIds.push(roomId);
+    exitRoomId = roomId;
+    currentParentId = roomId;
+    currentParentBounds = bounds;
+  }
+
+  let consecutiveFailures = 0;
+  while (roomIds.length < config.roomCount) {
+    const roomId = createZoneRoomId(config.zoneId, roomIds.length + 1);
+    const bounds = tryAddZoneBranchRoom({
+      zoneId: config.zoneId,
+      roomId,
+      roomIds,
+      roomSeeds: config.roomSeeds,
+      corridorPlans: config.corridorPlans,
+      region: config.region,
+      addRelativeRoom: config.addRelativeRoom
+    });
+
+    if (bounds) {
+      roomIds.push(roomId);
+      consecutiveFailures = 0;
+      continue;
+    }
+
+    consecutiveFailures += 1;
+    if (consecutiveFailures > 200) {
+      return null;
+    }
+  }
+
+  return {
+    roomIds,
+    entryRoomId: config.entryRoomId,
+    exitRoomId
+  };
+}
+
+function tryAddZoneBranchRoom(config: {
+  zoneId: Exclude<DungeonZoneId, 'spawn' | 'boss'>;
+  roomId: string;
+  roomIds: string[];
+  roomSeeds: RoomSeed[];
+  corridorPlans: CorridorPlanSpec[];
+  region: ZoneRegion;
+  addRelativeRoom: (config: {
+    id: string;
+    type: DungeonRoomType;
+    zoneId: DungeonZoneId;
+    from: string;
+    maxWidth: number;
+    options: RelativeRoomOptions;
+    corridorId?: string;
+    required?: boolean;
+  }) => RoomBounds | null;
+}): RoomBounds | null {
+  const directions: Array<'north' | 'south' | 'east' | 'west'> = ['north', 'south', 'east', 'west'];
+  const baseRoomIds = config.roomIds.filter((roomId) => getRoomConnectionDegree(roomId, config.corridorPlans) < 3);
+  for (const baseRoomId of shuffleArray(baseRoomIds)) {
+    const baseBounds = getRoomSeedBounds(config.roomSeeds, baseRoomId);
+    const usedDirections = getUsedRoomDirections(baseRoomId, config.roomSeeds, config.corridorPlans);
+    for (const direction of shuffleArray(directions.filter((candidate) => !usedDirections.has(candidate)))) {
+      const bounds = config.addRelativeRoom({
+        id: config.roomId,
+        type: randomZoneRoomType(config.zoneId),
+        zoneId: config.zoneId,
+        from: baseRoomId,
+        maxWidth: direction === 'north' || direction === 'south' ? 1 : 0.75,
+        options: createZoneRelativeOptions(baseBounds, config.region, direction, 'branch'),
+        required: false
+      });
+      if (bounds) {
+        return bounds;
+      }
+    }
+  }
+
+  return null;
+}
+
+function getRoomConnectionDegree(roomId: string, corridorPlans: CorridorPlanSpec[]): number {
+  return corridorPlans.filter((plan) => plan.from === roomId || plan.to === roomId).length;
+}
+
+function getUsedRoomDirections(
+  roomId: string,
+  roomSeeds: RoomSeed[],
+  corridorPlans: CorridorPlanSpec[]
+): Set<'north' | 'south' | 'east' | 'west'> {
+  const bounds = getRoomSeedBounds(roomSeeds, roomId);
+  const directions = new Set<'north' | 'south' | 'east' | 'west'>();
+
+  for (const plan of corridorPlans) {
+    const otherRoomId = plan.from === roomId ? plan.to : plan.to === roomId ? plan.from : null;
+    if (!otherRoomId) {
+      continue;
+    }
+
+    const otherBounds = getRoomSeedBounds(roomSeeds, otherRoomId);
+    if (otherBounds.minCol > bounds.minCol) {
+      directions.add('east');
+    } else if (otherBounds.minCol < bounds.minCol) {
+      directions.add('west');
+    } else if (otherBounds.minRow > bounds.minRow) {
+      directions.add('north');
+    } else if (otherBounds.minRow < bounds.minRow) {
+      directions.add('south');
+    }
+  }
+
+  return directions;
+}
+
+function randomZoneRoomType(zoneId: Exclude<DungeonZoneId, 'spawn' | 'boss'>): DungeonRoomType {
+  const roll = Math.random();
+  if (zoneId === GOLD_ZONE_ID && roll > 0.8) {
+    return 'treasure';
+  }
+
+  if (roll > 0.82) {
+    return 'treasure';
+  }
+
+  return 'normal';
+}
+
+function createZoneRelativeOptions(
+  base: RoomBounds,
+  region: ZoneRegion,
+  direction: 'north' | 'south' | 'east' | 'west',
+  layout: 'core' | 'branch'
+): RelativeRoomOptions {
+  if (layout === 'core') {
+    return {
+      base,
+      direction,
+      gapRange: [1, 1],
+      widthRange: [2, 3],
+      heightRange: [2, 3],
+      lateralDrift: 2,
+      colRange: region.colRange,
+      rowRange: region.rowRange
+    };
+  }
+
+  return {
+    base,
+    direction,
+    gapRange: [1, 1],
+    widthRange: [MIN_ROOM_DIMENSION_CELLS, 2],
+    heightRange: [MIN_ROOM_DIMENSION_CELLS, 2],
+    lateralDrift: 3,
+    colRange: region.colRange,
+    rowRange: region.rowRange
+  };
 }
 
 function createSeedRoomBounds(options: SeedRoomOptions): RoomBounds {
@@ -830,7 +866,7 @@ function chooseAnchoredStart(range: [number, number], size: number, anchor?: num
 
 function createCorridorSeed(plan: CorridorPlanSpec, from: RoomBounds, to: RoomBounds): CorridorSeed {
   const lane = plan.axis === 'z'
-    ? pickOverlapLane(from.minCol, from.minCol + from.width - 1, to.minCol, to.minCol + to.width - 1)
+    ? pickCorridorLaneZ(plan, from, to)
     : pickOverlapLane(from.minRow, from.minRow + from.height - 1, to.minRow, to.minRow + to.height - 1);
 
   return {
@@ -843,13 +879,30 @@ function createCorridorSeed(plan: CorridorPlanSpec, from: RoomBounds, to: RoomBo
   };
 }
 
+function pickCorridorLaneZ(plan: CorridorPlanSpec, from: RoomBounds, to: RoomBounds): number {
+  const overlapMin = Math.max(from.minCol, to.minCol);
+  const overlapMax = Math.min(from.minCol + from.width - 1, to.minCol + to.width - 1);
+
+  if (plan.id !== ENTRANCE_DOOR_CORRIDOR_ID) {
+    return randomInt(overlapMin, overlapMax);
+  }
+
+  const spawnBounds = plan.from === 'spawn' ? from : to;
+  const safeMaxLane = Math.min(overlapMax, spawnBounds.minCol + spawnBounds.width - 2);
+  if (overlapMin > safeMaxLane) {
+    throw new Error('Unable to reserve space for the spawn NPC to the right of the entrance door.');
+  }
+
+  return randomInt(overlapMin, safeMaxLane);
+}
+
 function pickOverlapLane(aMin: number, aMax: number, bMin: number, bMax: number): number {
   return randomInt(Math.max(aMin, bMin), Math.min(aMax, bMax));
 }
 
 function pickCorridorWidth(maxWidth: number): number {
-  const choices = [0.5, 0.75, 1].filter((value) => value <= maxWidth + 0.0001);
-  return choices[randomInt(0, choices.length - 1)] ?? 0.5;
+  const choices = [MIN_CORRIDOR_WIDTH_CELLS, 1].filter((value) => value <= maxWidth + 0.0001);
+  return choices[randomInt(0, choices.length - 1)] ?? MIN_CORRIDOR_WIDTH_CELLS;
 }
 
 function pickRoomDimension(range: [number, number]): number {
@@ -962,13 +1015,33 @@ function getRoomWorldBounds(room: DungeonRoomNode): RoomWorldBounds {
   return getRoomRect(room.bounds);
 }
 
-function getSpawnNpcPosition(_spawnRoom: DungeonRoomNode, entranceDoor: DungeonDoorDefinition, playerStartPosition: THREE.Vector3): THREE.Vector3 {
-  const fallback = new THREE.Vector3(entranceDoor.center.x - 2, 0, entranceDoor.center.z - 0.9);
-  if (fallback.distanceTo(playerStartPosition) >= 1.5) {
-    return fallback;
+function isInsideRoomBounds(position: THREE.Vector3, bounds: RoomWorldBounds, margin: number): boolean {
+  return position.x >= bounds.xMin + margin
+    && position.x <= bounds.xMax - margin
+    && position.z >= bounds.zMin + margin
+    && position.z <= bounds.zMax - margin;
+}
+
+function getSpawnNpcPosition(
+  spawnRoom: DungeonRoomNode,
+  entranceDoor: DungeonDoorDefinition
+): THREE.Vector3 {
+  const spawnBounds = getRoomWorldBounds(spawnRoom);
+  const rightOfDoor = new THREE.Vector3(
+    entranceDoor.center.x + SPAWN_NPC_X_OFFSET,
+    0,
+    entranceDoor.center.z - SPAWN_NPC_Z_OFFSET
+  );
+
+  if (isInsideRoomBounds(rightOfDoor, spawnBounds, SPAWN_NPC_WALL_MARGIN)) {
+    return rightOfDoor;
   }
 
-  return new THREE.Vector3(entranceDoor.center.x + 2, 0, entranceDoor.center.z - 0.9);
+  return new THREE.Vector3(
+    THREE.MathUtils.clamp(rightOfDoor.x, spawnBounds.xMin + SPAWN_NPC_WALL_MARGIN, spawnBounds.xMax - SPAWN_NPC_WALL_MARGIN),
+    0,
+    THREE.MathUtils.clamp(rightOfDoor.z, spawnBounds.zMin + SPAWN_NPC_WALL_MARGIN, spawnBounds.zMax - SPAWN_NPC_WALL_MARGIN)
+  );
 }
 
 function getSpawnChestPosition(
@@ -1010,6 +1083,49 @@ function getSpawnChestPosition(
 
 function randomBetween(min: number, max: number): number {
   return min + Math.random() * (max - min);
+}
+
+function mirrorDungeonLayout(layout: DungeonLayout): DungeonLayout {
+  return {
+    ...layout,
+    floorCenter: mirrorVector3OnZ(layout.floorCenter),
+    ceilingCenter: mirrorVector3OnZ(layout.ceilingCenter),
+    wallSegments: layout.wallSegments.map(mirrorWallSegmentOnZ),
+    doors: layout.doors.map(mirrorDoorOnZ),
+    chests: layout.chests.map((chest) => ({
+      ...chest,
+      position: mirrorVector3OnZ(chest.position)
+    })),
+    npcPosition: mirrorVector3OnZ(layout.npcPosition),
+    exteriorGroundCenter: mirrorVector3OnZ(layout.exteriorGroundCenter)
+  };
+}
+
+function mirrorVector3OnZ(vector: THREE.Vector3): THREE.Vector3 {
+  return new THREE.Vector3(vector.x, vector.y, -vector.z);
+}
+
+function mirrorWallSegmentOnZ(segment: DungeonWallSegment): DungeonWallSegment {
+  const start = new THREE.Vector2(segment.start.x, -segment.start.y);
+  const end = new THREE.Vector2(segment.end.x, -segment.end.y);
+  const normalizedStart = segment.axis === 'z' && start.y > end.y ? end : start;
+  const normalizedEnd = segment.axis === 'z' && start.y > end.y ? start : end;
+
+  return {
+    ...segment,
+    start: normalizedStart,
+    end: normalizedEnd,
+    center: mirrorVector3OnZ(segment.center),
+    line: segment.axis === 'x' ? -segment.line : segment.line
+  };
+}
+
+function mirrorDoorOnZ(door: DungeonDoorDefinition): DungeonDoorDefinition {
+  return {
+    ...door,
+    center: mirrorVector3OnZ(door.center),
+    rotationY: -door.rotationY
+  };
 }
 
 function getRoomChestPosition(room: DungeonRoomNode): THREE.Vector3 {
@@ -1105,6 +1221,7 @@ function getOccupiedFootprint(occupied: boolean[][]): { center: THREE.Vector2; s
 }
 
 function removeDuplicateWallSegments(segments: DungeonWallSegment[]): DungeonWallSegment[] {
+  const epsilon = 0.0001;
   const seen = new Set<string>();
   const unique: DungeonWallSegment[] = [];
 
@@ -1129,7 +1246,40 @@ function removeDuplicateWallSegments(segments: DungeonWallSegment[]): DungeonWal
     unique.push(segment);
   }
 
-  return unique;
+  const groups = new Map<string, DungeonWallSegment[]>();
+  for (const segment of unique) {
+    const key = [
+      segment.axis,
+      segment.line.toFixed(4),
+      segment.center.y.toFixed(4),
+      segment.size.y.toFixed(4),
+      segment.affectsJoins ? 'joins' : 'frame'
+    ].join('|');
+    const group = groups.get(key) ?? [];
+    group.push(segment);
+    groups.set(key, group);
+  }
+
+  const merged: DungeonWallSegment[] = [];
+  for (const group of groups.values()) {
+    const sorted = [...group].sort((a, b) => getSegmentRangeStart(a) - getSegmentRangeStart(b));
+    let current = sorted[0];
+
+    for (let index = 1; index < sorted.length; index += 1) {
+      const candidate = sorted[index];
+      if (getSegmentRangeStart(candidate) <= getSegmentRangeEnd(current) + epsilon) {
+        current = mergeWallSegments(current, candidate);
+        continue;
+      }
+
+      merged.push(current);
+      current = candidate;
+    }
+
+    merged.push(current);
+  }
+
+  return merged;
 }
 
 function fillRect(occupied: boolean[][], rect: Rect): void {
@@ -1201,107 +1351,33 @@ function getRequiredDoor(doors: DungeonDoorDefinition[], itemId: string): Dungeo
 
 
 function pickBronzeChestRoom(graph: DungeonGraph, roomById: Map<string, DungeonRoomNode>): DungeonRoomNode {
-  const blockedCorridors = new Set<string>([BRONZE_DOOR_CORRIDOR_ID]);
-  const reachable = getReachableRoomIds(graph, 'room1', blockedCorridors);
-
-  const candidates = [...reachable]
-    .map((roomId) => roomById.get(roomId))
-    .filter((room): room is DungeonRoomNode => Boolean(room))
-    .filter((room) => room.id !== 'spawn');
-
-  if (candidates.length === 0) {
-    throw new Error('Unable to place bronze key chest after the entrance and before the bronze door.');
-  }
-
-  return candidates[randomInt(0, candidates.length - 1)];
+  return pickChestRoomWithinZone(graph, roomById, BRONZE_ZONE_ID, 'Unable to place bronze key chest in the bronze zone.');
 }
 
-function pickSilverChestRoom(
-  graph: DungeonGraph,
-  roomById: Map<string, DungeonRoomNode>,
-  spawnRoomId: string
-): DungeonRoomNode {
-  const spawnRoom = roomById.get(spawnRoomId);
-  if (!spawnRoom) {
-    throw new Error('Spawn room is missing for silver key placement.');
-  }
-
-  const blockedCorridors = new Set<string>([SILVER_DOOR_CORRIDOR_ID]);
-  const reachableFromRoom1 = getReachableRoomIds(graph, BRONZE_DOOR_ROOM_ID, blockedCorridors);
-  const spawnCenter = getRoomCenterWorldPosition(spawnRoom);
-
-  const candidates = [...reachableFromRoom1]
-    .map((roomId) => roomById.get(roomId))
-    .filter((room): room is DungeonRoomNode => Boolean(room))
-    .filter((room) => room.id !== spawnRoomId)
-    .filter((room) => room.id !== SILVER_DOOR_ROOM_ID)
-    .filter((room) => getRoomCenterWorldPosition(room).distanceTo(spawnCenter) >= MIN_KEY_DISTANCE_FROM_SPAWN);
-
-  if (candidates.length === 0) {
-    throw new Error("Unable to place silver key chest away from spawn and before the silver door.");
-  }
-
-  return candidates[randomInt(0, candidates.length - 1)];
+function pickSilverChestRoom(graph: DungeonGraph, roomById: Map<string, DungeonRoomNode>): DungeonRoomNode {
+  return pickChestRoomWithinZone(graph, roomById, SILVER_ZONE_ID, 'Unable to place silver key chest in the silver zone.');
 }
 
 function pickGoldChestRoom(graph: DungeonGraph, roomById: Map<string, DungeonRoomNode>): DungeonRoomNode {
-  const blockedCorridors = new Set<string>([GOLD_DOOR_CORRIDOR_ID]);
-  const reachable = getReachableRoomIds(graph, 'room9', blockedCorridors);
+  return pickChestRoomWithinZone(graph, roomById, GOLD_ZONE_ID, 'Unable to place gold key chest in the gold zone.');
+}
 
-  const candidates = [...reachable]
-    .map((roomId) => roomById.get(roomId))
+function pickChestRoomWithinZone(
+  graph: DungeonGraph,
+  roomById: Map<string, DungeonRoomNode>,
+  zoneId: Exclude<DungeonZoneId, 'spawn' | 'boss'>,
+  errorMessage: string
+): DungeonRoomNode {
+  const candidates = graph.rooms
+    .map((room) => roomById.get(room.id))
     .filter((room): room is DungeonRoomNode => Boolean(room))
-    .filter((room) => room.id !== GOLD_DOOR_ROOM_ID);
+    .filter((room) => room.zoneId === zoneId);
 
   if (candidates.length === 0) {
-    throw new Error('Unable to place gold key chest before the gold door.');
+    throw new Error(errorMessage);
   }
 
   return candidates[randomInt(0, candidates.length - 1)];
-}
-
-function getReachableRoomIds(graph: DungeonGraph, startRoomId: string, blockedCorridors: Set<string>): Set<string> {
-  const adjacency = new Map<string, string[]>();
-  for (const corridor of graph.corridors) {
-    if (blockedCorridors.has(corridor.id)) {
-      continue;
-    }
-
-    if (!adjacency.has(corridor.from)) {
-      adjacency.set(corridor.from, []);
-    }
-    if (!adjacency.has(corridor.to)) {
-      adjacency.set(corridor.to, []);
-    }
-
-    adjacency.get(corridor.from)?.push(corridor.to);
-    adjacency.get(corridor.to)?.push(corridor.from);
-  }
-
-  const visited = new Set<string>([startRoomId]);
-  const queue: string[] = [startRoomId];
-
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (!current) {
-      continue;
-    }
-
-    for (const next of adjacency.get(current) ?? []) {
-      if (visited.has(next)) {
-        continue;
-      }
-      visited.add(next);
-      queue.push(next);
-    }
-  }
-
-  return visited;
-}
-
-function getRoomCenterWorldPosition(room: DungeonRoomNode): THREE.Vector3 {
-  const bounds = getRoomWorldBounds(room);
-  return new THREE.Vector3((bounds.xMin + bounds.xMax) / 2, 0, (bounds.zMin + bounds.zMax) / 2);
 }
 
 function createCorridorTransitions(
@@ -1312,9 +1388,9 @@ function createCorridorTransitions(
   const fromBounds = getRoomWorldBounds(fromRoom);
   const toBounds = getRoomWorldBounds(toRoom);
   const corridorRect = getCorridorRect(fromRoom, toRoom, corridor);
-  const isSpawnEntrance =
-    (fromRoom.type === 'spawn' && toRoom.id === 'room1') ||
-    (toRoom.type === 'spawn' && fromRoom.id === 'room1');
+  const corridorRequiredItemId = getCorridorRequiredItemId(corridor.id);
+  const corridorDoorName = getCorridorDoorName(corridor.id);
+  const isSpawnEntrance = corridor.id === ENTRANCE_DOOR_CORRIDOR_ID;
 
   if (corridor.axis === 'z') {
     const xCenter = (corridorRect.xMin + corridorRect.xMax) / 2;
@@ -1337,8 +1413,33 @@ function createCorridorTransitions(
           wallEnd: spawnBounds.xMax,
           locked: true,
           entrance: true,
-          requiredItemId: getDoorRequiredItemId(corridor.id, 'room1'),
-          doorName: getDoorName(getDoorRequiredItemId(corridor.id, 'room1'))
+          requiredItemId: corridorRequiredItemId,
+          doorName: corridorDoorName
+        }
+      ];
+    }
+
+    if (corridorRequiredItemId) {
+      const anchorZoneId = getLockedDoorAnchorZoneId(corridor.id);
+      const anchorRoom = lowerRoom.zoneId === anchorZoneId ? lowerRoom : upperRoom;
+      const anchorBounds = anchorRoom.id === lowerRoom.id ? lowerBounds : upperBounds;
+      return [
+        {
+          roomId: anchorRoom.id,
+          center: new THREE.Vector3(
+            xCenter,
+            0,
+            anchorRoom.id === lowerRoom.id ? anchorBounds.zMax : anchorBounds.zMin
+          ),
+          rotationY: 0,
+          openingStart: corridorRect.xMin,
+          openingEnd: corridorRect.xMax,
+          wallStart: anchorBounds.xMin,
+          wallEnd: anchorBounds.xMax,
+          locked: true,
+          entrance: false,
+          requiredItemId: corridorRequiredItemId,
+          doorName: corridorDoorName
         }
       ];
     }
@@ -1352,10 +1453,10 @@ function createCorridorTransitions(
         openingEnd: corridorRect.xMax,
         wallStart: lowerBounds.xMin,
         wallEnd: lowerBounds.xMax,
-        locked: lowerRoom.type === 'lockedDoorRoom' || getDoorRequiredItemId(corridor.id, lowerRoom.id) !== undefined,
+        locked: false,
         entrance: false,
-        requiredItemId: getDoorRequiredItemId(corridor.id, lowerRoom.id),
-        doorName: getDoorName(getDoorRequiredItemId(corridor.id, lowerRoom.id))
+        requiredItemId: undefined,
+        doorName: corridorDoorName
       },
       {
         roomId: upperRoom.id,
@@ -1365,10 +1466,10 @@ function createCorridorTransitions(
         openingEnd: corridorRect.xMax,
         wallStart: upperBounds.xMin,
         wallEnd: upperBounds.xMax,
-        locked: upperRoom.type === 'lockedDoorRoom' || getDoorRequiredItemId(corridor.id, upperRoom.id) !== undefined,
+        locked: false,
         entrance: false,
-        requiredItemId: getDoorRequiredItemId(corridor.id, upperRoom.id),
-        doorName: getDoorName(getDoorRequiredItemId(corridor.id, upperRoom.id))
+        requiredItemId: undefined,
+        doorName: corridorDoorName
       }
     ];
   }
@@ -1379,6 +1480,31 @@ function createCorridorTransitions(
   const leftBounds = leftRoom.id === fromRoom.id ? fromBounds : toBounds;
   const rightBounds = rightRoom.id === toRoom.id ? toBounds : fromBounds;
 
+  if (corridorRequiredItemId) {
+    const anchorZoneId = getLockedDoorAnchorZoneId(corridor.id);
+    const anchorRoom = leftRoom.zoneId === anchorZoneId ? leftRoom : rightRoom;
+    const anchorBounds = anchorRoom.id === leftRoom.id ? leftBounds : rightBounds;
+    return [
+      {
+        roomId: anchorRoom.id,
+        center: new THREE.Vector3(
+          anchorRoom.id === leftRoom.id ? anchorBounds.xMax : anchorBounds.xMin,
+          0,
+          zCenter
+        ),
+        rotationY: Math.PI / 2,
+        openingStart: corridorRect.zMin,
+        openingEnd: corridorRect.zMax,
+        wallStart: anchorBounds.zMin,
+        wallEnd: anchorBounds.zMax,
+        locked: true,
+        entrance: false,
+        requiredItemId: corridorRequiredItemId,
+        doorName: corridorDoorName
+      }
+    ];
+  }
+
   return [
     {
       roomId: leftRoom.id,
@@ -1388,10 +1514,10 @@ function createCorridorTransitions(
       openingEnd: corridorRect.zMax,
       wallStart: leftBounds.zMin,
       wallEnd: leftBounds.zMax,
-      locked: leftRoom.type === 'lockedDoorRoom' || getDoorRequiredItemId(corridor.id, leftRoom.id) !== undefined,
+      locked: false,
       entrance: false,
-      requiredItemId: getDoorRequiredItemId(corridor.id, leftRoom.id),
-      doorName: getDoorName(getDoorRequiredItemId(corridor.id, leftRoom.id))
+      requiredItemId: undefined,
+      doorName: corridorDoorName
     },
     {
       roomId: rightRoom.id,
@@ -1401,48 +1527,70 @@ function createCorridorTransitions(
       openingEnd: corridorRect.zMax,
       wallStart: rightBounds.zMin,
       wallEnd: rightBounds.zMax,
-      locked: rightRoom.type === 'lockedDoorRoom' || getDoorRequiredItemId(corridor.id, rightRoom.id) !== undefined,
+      locked: false,
       entrance: false,
-      requiredItemId: getDoorRequiredItemId(corridor.id, rightRoom.id),
-      doorName: getDoorName(getDoorRequiredItemId(corridor.id, rightRoom.id))
+      requiredItemId: undefined,
+      doorName: corridorDoorName
     }
   ];
 }
 
-function getDoorRequiredItemId(corridorId: string, roomId: string): string | undefined {
-  if (corridorId === ENTRANCE_DOOR_CORRIDOR_ID && roomId === 'room1') {
+function getCorridorRequiredItemId(corridorId: string): string | undefined {
+  if (corridorId === ENTRANCE_DOOR_CORRIDOR_ID) {
     return 'rusty_key';
   }
 
-  if (corridorId === BRONZE_DOOR_CORRIDOR_ID && roomId === BRONZE_DOOR_ROOM_ID) {
+  if (corridorId === BRONZE_DOOR_CORRIDOR_ID) {
     return 'bronze_key';
   }
 
-  if (corridorId === SILVER_DOOR_CORRIDOR_ID && roomId === SILVER_DOOR_ROOM_ID) {
+  if (corridorId === SILVER_DOOR_CORRIDOR_ID) {
     return 'silver_key';
   }
 
-  if (corridorId === GOLD_DOOR_CORRIDOR_ID && roomId === GOLD_DOOR_ROOM_ID) {
+  if (corridorId === GOLD_DOOR_CORRIDOR_ID) {
     return 'gold_key';
   }
 
   return undefined;
 }
 
-function getDoorName(requiredItemId?: string): string | undefined {
-  if (requiredItemId === 'rusty_key') {
+function getLockedDoorAnchorZoneId(corridorId: string): Exclude<DungeonZoneId, 'spawn' | 'boss'> {
+  if (corridorId === BRONZE_DOOR_CORRIDOR_ID) {
+    return BRONZE_ZONE_ID;
+  }
+
+  if (corridorId === SILVER_DOOR_CORRIDOR_ID) {
+    return SILVER_ZONE_ID;
+  }
+
+  if (corridorId === GOLD_DOOR_CORRIDOR_ID) {
+    return GOLD_ZONE_ID;
+  }
+
+  throw new Error('Missing anchor room for locked corridor: ' + corridorId);
+}
+
+function getDoorRequiredItemId(corridorId: string, roomId: string): string | undefined {
+  void corridorId;
+  void roomId;
+  return undefined;
+}
+
+function getCorridorDoorName(corridorId: string): string | undefined {
+  if (corridorId === ENTRANCE_DOOR_CORRIDOR_ID) {
     return "porte d'entrée";
   }
 
-  if (requiredItemId === 'bronze_key') {
+  if (corridorId === BRONZE_DOOR_CORRIDOR_ID) {
     return 'porte de bronze';
   }
 
-  if (requiredItemId === 'silver_key') {
+  if (corridorId === SILVER_DOOR_CORRIDOR_ID) {
     return "porte d'argent";
   }
 
-  if (requiredItemId === 'gold_key') {
+  if (corridorId === GOLD_DOOR_CORRIDOR_ID) {
     return "porte d'or";
   }
 
@@ -1450,13 +1598,9 @@ function getDoorName(requiredItemId?: string): string | undefined {
 }
 
 function createInteriorDoor(transition: CorridorTransition, index: number): DungeonDoorDefinition {
-  const doorId = transition.requiredItemId === 'bronze_key'
-    ? 'bronze_door'
-    : transition.requiredItemId === 'silver_key'
-      ? 'silver_door'
-      : transition.requiredItemId === 'gold_key'
-        ? 'gold_door'
-        : `interior_door_${index}`;
+  const doorId = transition.requiredItemId
+    ? `${transition.requiredItemId}_${transition.roomId}`
+    : `interior_door_${index}`;
 
   return {
     id: doorId,
@@ -1465,13 +1609,9 @@ function createInteriorDoor(transition: CorridorTransition, index: number): Dung
     height: DOOR_HEIGHT,
     depth: DOOR_DEPTH,
     rotationY: transition.rotationY,
-    obstacleId: transition.requiredItemId === 'bronze_key'
-      ? 'door_obstacle_bronze'
-      : transition.requiredItemId === 'silver_key'
-        ? 'door_obstacle_silver'
-        : transition.requiredItemId === 'gold_key'
-          ? 'door_obstacle_gold'
-          : `door_obstacle_interior_${index}`,
+    obstacleId: transition.requiredItemId
+      ? `door_obstacle_${transition.requiredItemId}_${transition.roomId}`
+      : `door_obstacle_interior_${index}`,
     locked: transition.locked,
     entrance: transition.entrance,
     requiredItemId: transition.requiredItemId,
@@ -1582,6 +1722,26 @@ function getSegmentRangeEnd(segment: DungeonWallSegment): number {
   return segment.axis === 'x'
     ? Math.max(segment.start.x, segment.end.x)
     : Math.max(segment.start.y, segment.end.y);
+}
+
+function mergeWallSegments(a: DungeonWallSegment, b: DungeonWallSegment): DungeonWallSegment {
+  const start = Math.min(getSegmentRangeStart(a), getSegmentRangeStart(b));
+  const end = Math.max(getSegmentRangeEnd(a), getSegmentRangeEnd(b));
+  const affectsJoins = a.affectsJoins || b.affectsJoins;
+
+  if (a.axis === 'x') {
+    const merged = affectsJoins ? horizontalWall(a.id, start, end, a.line) : frameHorizontalWall(a.id, start, end, a.line);
+    return {
+      ...merged,
+      priority: Math.min(a.priority, b.priority)
+    };
+  }
+
+  const merged = affectsJoins ? verticalWall(a.id, a.line, start, end) : frameVerticalWall(a.id, a.line, start, end);
+  return {
+    ...merged,
+    priority: Math.min(a.priority, b.priority)
+  };
 }
 
 function addDoorLintels(segments: DungeonWallSegment[], doors: DungeonDoorDefinition[]): void {

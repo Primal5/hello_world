@@ -1,3 +1,9 @@
+:root {
+  --item-accent: #90b7ff;
+  --item-accent-bg: rgba(79, 118, 201, 0.16);
+  --item-accent-border: rgba(124, 165, 255, 0.24);
+}
+
 html,
 body,
 #root {
@@ -263,12 +269,14 @@ canvas {
 .dialogue-window__message {
   margin: 0;
   line-height: 1.5;
+  white-space: pre-line;
   color: #b9d4ff;
   text-shadow: 0 0 10px rgba(83, 146, 255, 0.18);
 }
 
 .dialogue-window__highlight {
   font-weight: 700;
+  text-shadow: 0 0 12px currentColor;
 }
 
 .dialogue-window__actions,
@@ -335,6 +343,7 @@ canvas {
 
 .event-log__highlight {
   font-weight: 700;
+  text-shadow: 0 0 12px currentColor;
 }
 
 .action-bar {

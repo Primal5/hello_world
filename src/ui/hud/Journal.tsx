@@ -9,6 +9,7 @@ function renderEntry(entry: JournalEntry): ReactNode {
 
   const parts: ReactNode[] = [];
   let cursor = 0;
+  const matchedHighlights = new Set<number>();
 
   entry.highlights.forEach((highlight: JournalHighlight, index: number) => {
     const start = entry.message.indexOf(highlight.text, cursor);
@@ -31,10 +32,31 @@ function renderEntry(entry: JournalEntry): ReactNode {
     );
 
     cursor = start + highlight.text.length;
+    matchedHighlights.add(index);
   });
 
   if (cursor < entry.message.length) {
     parts.push(<Fragment key="tail">{entry.message.slice(cursor)}</Fragment>);
+  }
+
+  const missingHighlights = entry.highlights.filter((_, index) => !matchedHighlights.has(index));
+  if (missingHighlights.length > 0) {
+    if (parts.length === 0) {
+      parts.push(<Fragment key="full-message">{entry.message}</Fragment>);
+    }
+
+    parts.push(<Fragment key="fallback-gap"> </Fragment>);
+    missingHighlights.forEach((highlight, index) => {
+      parts.push(
+        <span
+          className="event-log__highlight"
+          key={`fallback-highlight-${index}-${highlight.text}`}
+          style={{ color: highlight.color }}
+        >
+          {highlight.text}
+        </span>
+      );
+    });
   }
 
   return parts;

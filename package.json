@@ -8,10 +8,12 @@
     "check": "npm run check:utf8",
     "check:text": "powershell -ExecutionPolicy Bypass -File .\\scripts\\check-display-texts.ps1",
     "check:utf8": "node .\\scripts\\check-utf8.mjs",
+    "check:item-ui-colors": "node .\\scripts\\check-item-ui-colors.mjs",
+    "check:spawn-npc-placement": "node .\\scripts\\check-spawn-npc-placement.mjs",
     "check:wall-joins": "powershell -ExecutionPolicy Bypass -File .\\scripts\\check-wall-joins.ps1",
     "check:wall-overlaps": "node .\\scripts\\check-wall-overlaps.mjs",
     "check:ui-messaging": "node .\\scripts\\check-ui-messaging.mjs",
-    "build": "npm run check:text && npm run check:utf8 && npm run check:wall-joins && npm run check:wall-overlaps && npm run check:ui-messaging && tsc -b && vite build",
+    "build": "npm run check:text && npm run check:utf8 && npm run check:item-ui-colors && npm run check:spawn-npc-placement && npm run check:wall-joins && npm run check:wall-overlaps && npm run check:ui-messaging && tsc -b && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

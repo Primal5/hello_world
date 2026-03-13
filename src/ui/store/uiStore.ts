@@ -86,11 +86,31 @@ export const useUiStore = create<UiState>((set) => ({
     })),
   addJournalEntry: (entry) => {
     const journalEntry = toJournalEntry(entry);
-    set((state) => ({
-      journalEntries: state.journalEntries.some((current) => current.message === journalEntry.message)
-        ? state.journalEntries
-        : [journalEntry, ...state.journalEntries].slice(0, 24)
-    }));
+    set((state) => {
+      const existingIndex = state.journalEntries.findIndex((current) => current.message === journalEntry.message);
+      if (existingIndex === -1) {
+        return {
+          journalEntries: [journalEntry, ...state.journalEntries].slice(0, 24)
+        };
+      }
+
+      const existingEntry = state.journalEntries[existingIndex];
+      if (!journalEntry.highlights || journalEntry.highlights.length === 0) {
+        return {
+          journalEntries: state.journalEntries
+        };
+      }
+
+      const nextEntries = [...state.journalEntries];
+      nextEntries[existingIndex] = {
+        ...existingEntry,
+        highlights: journalEntry.highlights
+      };
+
+      return {
+        journalEntries: nextEntries
+      };
+    });
   },
   openDialogue: (dialogueBox) => set({ dialogueBox }),
   closeDialogue: () => set({ dialogueBox: null })

@@ -169,6 +169,7 @@ export class Game {
     if (this.interactionSystem && !isDialogueOpen) {
       const focused = this.raycastInteractor.pick(
         this.world.camera,
+        this.world.scene,
         this.interactionSystem.interactables,
         this.interactionSystem.maxDistance
       );

@@ -109,6 +109,7 @@ export class LevelLoader {
 
     const { root: npc, greet: greetNpc } = await this.loadNpc();
     this.placeObject(npc, layout.npcPosition);
+    npc.rotation.y = Math.PI;
     this.scene.add(npc);
     interactables.push({
       id: 'entrance_npc',
@@ -126,7 +127,10 @@ export class LevelLoader {
             }]
           : undefined;
         context.acknowledge(DISPLAY_TEXT.world.npc.prefix, line, () => {
-          context.journal(`${DISPLAY_TEXT.world.npc.prefix} : ${line}`);
+          context.journal({
+            message: `${DISPLAY_TEXT.world.npc.prefix} : ${line}`,
+            highlights
+          });
         }, highlights);
       }
     });
@@ -184,14 +188,18 @@ export class LevelLoader {
             }
             const usedItem = requiredItemId ? this.itemDb.getById(requiredItemId) : undefined;
             if (usedItem) {
-              const usedMessage = DISPLAY_TEXT.world.item.used(usedItem.name);
               const rarityTheme = ItemVisualsService.getRarityTheme(usedItem.rarity);
-              context.journal({
-                message: usedMessage,
+              const keyUsageEvent = {
+                message: doorDefinition.doorName
+                  ? DISPLAY_TEXT.world.item.usedOnDoor(usedItem.name, doorDefinition.doorName)
+                  : DISPLAY_TEXT.world.item.used(usedItem.name),
                 highlights: [{ text: usedItem.name, color: rarityTheme.color }]
-              });
+              };
+              context.event(keyUsageEvent);
+              context.journal(keyUsageEvent);
             }
             isUnlocked = true;
+            return;
           }
 
           if (isOpen) {
