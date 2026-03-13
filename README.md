@@ -116,3 +116,47 @@ Base prête pour ajouter:
 - PNJ dynamiques
 - combat FPS/melee
 - persistance/sauvegarde
+
+## Rappel gameplay
+
+### Codes couleur des raretés d’objets
+
+| Rareté | Label affiché | Couleur (hex) |
+| --- | --- | --- |
+| junk | Dechets | `#8d99ae` |
+| common | Commun | `#f5f7fb` |
+| magic | Magique | `#72b8ff` |
+| rare | Rare | `#ffd76a` |
+| epic | Epique | `#be8cff` |
+| legendary | Legendaire | `#ff9b47` |
+| artifact | Artefact | `#ff6b5f` |
+| quest | Objet de quete | `#4ef2d2` |
+
+### Règles de création du donjon
+
+- Génération procédurale avec une grille de **20 x 20 cellules** sur une zone de **100 unités**.
+- Le générateur tente jusqu’à **200 essais** pour produire un graphe valide de salles/couloirs.
+- La salle de départ (`spawn`) est fixée en bas de la carte puis les salles suivantes sont placées relativement (nord/sud/est/ouest), avec contraintes de taille et de zones autorisées.
+- Les salles ne peuvent pas se chevaucher ni se toucher.
+- Les couloirs sont générés à partir des recouvrements entre salles, avec des largeurs choisies parmi **0.5 / 0.75 / 1** (selon la largeur maximale autorisée du couloir).
+- Les portes intérieures sont créées aux transitions salle/couloir, avec état verrouillé/déverrouillé selon le type de branche.
+- Le PNJ de départ est positionné près de la porte d’entrée du donjon.
+- Le coffre de départ est placé aléatoirement dans la salle `spawn`, en respectant des distances minimales vis-à-vis de la porte d’entrée, du PNJ et du point de départ joueur.
+
+### Objets utilisables (objets)
+
+> État actuel des données :
+
+- **Clé rouillée** (`rusty_key`)
+  - Type : objet de quête
+  - Rareté : `quest`
+  - Description : « Une vieille clé qui semble ouvrir une porte ancienne. »
+  - Obtention : dans le coffre de départ
+  - Utilisation : consommée pour déverrouiller la porte d’entrée
+
+### Objets utilisables liés aux PNJ
+
+- Le PNJ actuel (garde du didacticiel) ne consomme pas d’objet directement.
+- Il indique cependant que la **Clé rouillée** permet d’ouvrir la vieille porte.
+- Aucun autre objet utilisable spécifique aux PNJ n’est défini pour l’instant.
+
