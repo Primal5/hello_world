@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { DISPLAY_TEXT } from '../../text/DisplayText';
 
 export interface JournalHighlight {
   text: string;
@@ -39,14 +38,18 @@ export type JournalEntryInput = string | JournalEntry;
 
 interface UiState {
   isInventoryOpen: boolean;
+  isJournalOpen: boolean;
   isPaused: boolean;
   pauseLabel: string | null;
   interactionPrompt: string | null;
   eventMessages: UiEventMessage[];
   journalEntries: JournalEntry[];
+  journalRevealTick: number;
   dialogueBox: DialogueBoxState | null;
   toggleInventory: () => void;
   closeInventory: () => void;
+  toggleJournal: () => void;
+  closeJournal: () => void;
   setPaused: (paused: boolean, label?: string | null) => void;
   setInteractionPrompt: (prompt: string | null) => void;
   pushEventMessage: (entry: EventMessageInput) => number;
@@ -68,14 +71,18 @@ function toEventMessage(entry: EventMessageInput, id: number): UiEventMessage {
 
 export const useUiStore = create<UiState>((set) => ({
   isInventoryOpen: false,
+  isJournalOpen: false,
   isPaused: false,
   pauseLabel: null,
   interactionPrompt: null,
   eventMessages: [],
-  journalEntries: [toJournalEntry(DISPLAY_TEXT.ui.log.welcome)],
+  journalEntries: [],
+  journalRevealTick: 0,
   dialogueBox: null,
   toggleInventory: () => set((state) => ({ isInventoryOpen: !state.isInventoryOpen })),
   closeInventory: () => set({ isInventoryOpen: false }),
+  toggleJournal: () => set((state) => ({ isJournalOpen: !state.isJournalOpen })),
+  closeJournal: () => set({ isJournalOpen: false }),
   setPaused: (isPaused, pauseLabel = null) => set({ isPaused, pauseLabel }),
   setInteractionPrompt: (interactionPrompt) => set({ interactionPrompt }),
   pushEventMessage: (entry) => {
@@ -96,7 +103,8 @@ export const useUiStore = create<UiState>((set) => ({
       const existingIndex = state.journalEntries.findIndex((current) => current.message === journalEntry.message);
       if (existingIndex === -1) {
         return {
-          journalEntries: [journalEntry, ...state.journalEntries].slice(0, 24)
+          journalEntries: [journalEntry, ...state.journalEntries].slice(0, 24),
+          journalRevealTick: state.journalRevealTick + 1
         };
       }
 
@@ -114,7 +122,8 @@ export const useUiStore = create<UiState>((set) => ({
       };
 
       return {
-        journalEntries: nextEntries
+        journalEntries: nextEntries,
+        journalRevealTick: state.journalRevealTick + 1
       };
     });
   },

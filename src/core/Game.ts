@@ -23,6 +23,7 @@ import { AssetLoader } from '../engine/AssetLoader';
 import { DUNGEON_CONFIG } from '../engine/DungeonGenerator';
 import { DISPLAY_TEXT } from '../text/DisplayText';
 import { addInventoryCloseRequestListener, removeInventoryCloseRequestListener } from '../ui/inventory/inventoryEvents';
+import { addJournalCloseRequestListener, removeJournalCloseRequestListener } from '../ui/hud/journalEvents';
 import { PauseController } from './PauseController';
 
 const HEALTH_REGEN_AMOUNT = 1;
@@ -102,7 +103,7 @@ export class Game {
             onConfirm?.();
             queueMicrotask(() => {
               const uiState = useUiStore.getState();
-              if (!uiState.dialogueBox && !uiState.isInventoryOpen) {
+              if (!uiState.dialogueBox && !uiState.isInventoryOpen && !uiState.isJournalOpen) {
                 this.controller.requestPointerLock();
               }
             });
@@ -128,7 +129,7 @@ export class Game {
               choice.onSelect();
               queueMicrotask(() => {
                 const uiState = useUiStore.getState();
-                if (!uiState.dialogueBox && !uiState.isInventoryOpen) {
+                if (!uiState.dialogueBox && !uiState.isInventoryOpen && !uiState.isJournalOpen) {
                   this.controller.requestPointerLock();
                 }
               });
@@ -151,6 +152,7 @@ export class Game {
     window.addEventListener('resize', this.onResize);
     window.addEventListener('keydown', this.onKeyDown);
     addInventoryCloseRequestListener(this.onInventoryCloseRequested);
+    addJournalCloseRequestListener(this.onJournalCloseRequested);
     this.player.isGrounded = true;
     this.loop.start();
   }
@@ -167,6 +169,7 @@ export class Game {
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('keydown', this.onKeyDown);
     removeInventoryCloseRequestListener(this.onInventoryCloseRequested);
+    removeJournalCloseRequestListener(this.onJournalCloseRequested);
   }
 
   private update(delta: number): void {
@@ -174,7 +177,8 @@ export class Game {
     const dialogueBox = uiState.dialogueBox;
     const isDialogueOpen = Boolean(dialogueBox);
     const isInventoryOpen = uiState.isInventoryOpen;
-    const isUiBlocking = isDialogueOpen || isInventoryOpen;
+    const isJournalOpen = uiState.isJournalOpen;
+    const isUiBlocking = isDialogueOpen || isInventoryOpen || isJournalOpen;
     const isGamePaused = uiState.isPaused;
 
     if (!isUiBlocking && !isGamePaused) {
@@ -256,7 +260,7 @@ export class Game {
     }
 
     if (event.code === 'KeyE') {
-      if (uiState.isInventoryOpen || uiState.isPaused) {
+      if (uiState.isInventoryOpen || uiState.isJournalOpen || uiState.isPaused) {
         return;
       }
 
@@ -266,7 +270,7 @@ export class Game {
 
     if (DISPLAY_TEXT.ui.pause.toggleKeyCodes.some((code) => code === event.code)) {
       event.preventDefault();
-      if (dialogueBox || uiState.isInventoryOpen) {
+      if (dialogueBox || uiState.isInventoryOpen || uiState.isJournalOpen) {
         return;
       }
 
@@ -297,10 +301,15 @@ export class Game {
         this.input.clear();
         useUiStore.getState().closeInventory();
         this.pauseController.deactivate('inventory');
-        if (!useUiStore.getState().dialogueBox && !this.pauseController.isPaused()) {
+        if (!useUiStore.getState().dialogueBox && !useUiStore.getState().isJournalOpen && !this.pauseController.isPaused()) {
           this.controller.requestPointerLock();
         }
         return;
+      }
+
+      if (uiState.isJournalOpen) {
+        useUiStore.getState().closeJournal();
+        this.pauseController.deactivate('journal');
       }
 
       this.input.clear();
@@ -311,12 +320,49 @@ export class Game {
       return;
     }
 
+    if (DISPLAY_TEXT.ui.journal.toggleKeyCodes.some((code) => code === event.code)) {
+      event.preventDefault();
+      if (dialogueBox) {
+        return;
+      }
+
+      if (this.pauseController.hasReason('manual')) {
+        return;
+      }
+
+      if (uiState.isJournalOpen) {
+        this.input.clear();
+        useUiStore.getState().closeJournal();
+        this.pauseController.deactivate('journal');
+        if (!useUiStore.getState().dialogueBox && !useUiStore.getState().isInventoryOpen && !this.pauseController.isPaused()) {
+          this.controller.requestPointerLock();
+        }
+        return;
+      }
+
+      if (uiState.isInventoryOpen) {
+        useUiStore.getState().closeInventory();
+        this.pauseController.deactivate('inventory');
+      }
+
+      this.input.clear();
+      this.controller.exitPointerLock();
+      useUiStore.getState().setInteractionPrompt(null);
+      this.pauseController.activate('journal');
+      useUiStore.getState().toggleJournal();
+      return;
+    }
+
     if (event.code === 'Escape') {
       this.input.clear();
       if (uiState.isInventoryOpen) {
         this.pauseController.deactivate('inventory');
       }
+      if (uiState.isJournalOpen) {
+        this.pauseController.deactivate('journal');
+      }
       useUiStore.getState().closeInventory();
+      useUiStore.getState().closeJournal();
       useUiStore.getState().closeDialogue();
       if (!this.pauseController.isPaused()) {
         this.controller.requestPointerLock();
@@ -333,7 +379,21 @@ export class Game {
     this.input.clear();
     useUiStore.getState().closeInventory();
     this.pauseController.deactivate('inventory');
-    if (!useUiStore.getState().dialogueBox && !this.pauseController.isPaused()) {
+    if (!useUiStore.getState().dialogueBox && !useUiStore.getState().isJournalOpen && !this.pauseController.isPaused()) {
+      this.controller.requestPointerLock();
+    }
+  };
+
+  private onJournalCloseRequested = (): void => {
+    const uiState = useUiStore.getState();
+    if (!uiState.isJournalOpen) {
+      return;
+    }
+
+    this.input.clear();
+    useUiStore.getState().closeJournal();
+    this.pauseController.deactivate('journal');
+    if (!useUiStore.getState().dialogueBox && !useUiStore.getState().isInventoryOpen && !this.pauseController.isPaused()) {
       this.controller.requestPointerLock();
     }
   };

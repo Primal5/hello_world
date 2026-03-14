@@ -113,7 +113,7 @@ export class FirstPersonController {
 
   private readonly onCanvasClick = (): void => {
     const uiState = useUiStore.getState();
-    if (uiState.dialogueBox || uiState.isInventoryOpen || uiState.isPaused) {
+    if (uiState.dialogueBox || uiState.isInventoryOpen || uiState.isJournalOpen || uiState.isPaused) {
       return;
     }
 

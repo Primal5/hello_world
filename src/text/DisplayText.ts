@@ -15,6 +15,12 @@ export const DISPLAY_TEXT = {
       closeHint: 'Appuyez sur I ou Tab pour fermer.',
       itemCount: (count: number) => `${count} objet${count > 1 ? 's' : ''}`
     },
+    journal: {
+      title: 'Journal',
+      closeButtonLabel: 'Fermer le journal',
+      closeHint: 'Appuyez sur J pour fermer.',
+      toggleKeyCodes: ['KeyJ']
+    },
     pause: {
       label: 'En pause',
       toggleKeyCodes: ['KeyP', 'Pause']
@@ -27,7 +33,7 @@ export const DISPLAY_TEXT = {
       acknowledgeLabel: 'Compris !'
     },
     log: {
-      welcome: 'Bienvenue dans la démo FPS/RPG.'
+      welcome: 'Bienvenue dans le didacticiel.'
     },
     hud: {
       healthAria: (current: number, max: number) => `Points de vie : ${current} sur ${max}`,

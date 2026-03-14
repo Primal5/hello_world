@@ -285,7 +285,7 @@ canvas {
   border: 1px solid rgba(130, 171, 255, 0.16);
   color: #ecf3ff;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
-  animation: event-message-fade 3.2s ease forwards;
+  animation: event-message-fade 3.2s linear forwards;
 }
 
 .event-feed__highlight {
@@ -299,7 +299,8 @@ canvas {
     transform: translateY(-10px);
   }
 
-  12%, 78% {
+  5%,
+  38% {
     opacity: 1;
     transform: translateY(0);
   }
@@ -315,12 +316,38 @@ canvas {
   left: 16px;
   top: 156px;
   width: 340px;
-  max-height: 220px;
-  overflow: auto;
+  max-height: calc(100vh - 312px);
+  overflow: hidden;
   background: rgba(0, 0, 0, 0.6);
   color: #fff;
   border-radius: 8px;
   padding: 8px 12px;
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+  transition: opacity 820ms ease-in, transform 820ms ease-in;
+}
+
+.event-log--visible {
+  opacity: 1;
+  transform: translateY(0);
+  transition-duration: 140ms;
+  transition-timing-function: ease-out;
+}
+
+.journal-history {
+  position: fixed;
+  left: 16px;
+  top: 156px;
+  width: 340px;
+  max-height: calc(100vh - 312px);
+  overflow-y: auto;
+  background: linear-gradient(180deg, rgba(14, 20, 31, 0.96), rgba(8, 11, 18, 0.92));
+  color: #d4e2ff;
+  border: 1px solid rgba(124, 165, 255, 0.4);
+  border-radius: 10px;
+  padding: 14px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.32);
 }
 
 .dialogue-window {
@@ -393,11 +420,17 @@ canvas {
 }
 
 .event-log h3,
+.journal-history h3,
 .inventory-panel h3 {
-  margin: 0 0 14px;
+  margin: 0;
+}
+
+.event-log > h3 {
+  margin-bottom: 14px;
 }
 
 .event-log ul,
+.journal-history ul,
 .inventory-panel ul {
   list-style: none;
   padding: 0;
@@ -414,6 +447,15 @@ canvas {
   padding: 0;
   border: 0;
   background: transparent;
+  line-height: 1.35;
+}
+
+.event-log__entry:last-child {
+  margin-bottom: 0;
+}
+
+.journal-history__list {
+  padding-right: 6px;
 }
 
 .event-log__entry--dialogue {
@@ -773,7 +815,14 @@ canvas {
     left: 12px;
     top: 126px;
     width: min(300px, calc(100vw - 24px));
-    max-height: 180px;
+    max-height: calc(100vh - 252px);
+  }
+
+  .journal-history {
+    left: 12px;
+    top: 126px;
+    width: min(300px, calc(100vw - 24px));
+    max-height: calc(100vh - 252px);
   }
 
   .dialogue-window {

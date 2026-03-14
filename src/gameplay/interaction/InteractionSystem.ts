@@ -48,7 +48,7 @@ export class InteractionSystem {
 
     const uiState = useUiStore.getState();
     const { setInteractionPrompt } = uiState;
-    if (!interactable || uiState.dialogueBox || uiState.isInventoryOpen || uiState.isPaused) {
+    if (!interactable || uiState.dialogueBox || uiState.isInventoryOpen || uiState.isJournalOpen || uiState.isPaused) {
       setInteractionPrompt(null);
       return;
     }
@@ -63,7 +63,7 @@ export class InteractionSystem {
     }
 
     const uiState = useUiStore.getState();
-    if (uiState.isInventoryOpen || uiState.isPaused) {
+    if (uiState.isInventoryOpen || uiState.isJournalOpen || uiState.isPaused) {
       return;
     }
 
