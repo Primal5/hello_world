@@ -26,8 +26,8 @@ import { addInventoryCloseRequestListener, removeInventoryCloseRequestListener }
 import { addJournalCloseRequestListener, removeJournalCloseRequestListener } from '../ui/hud/journalEvents';
 import { PauseController } from './PauseController';
 
-const HEALTH_REGEN_AMOUNT = 1;
-const HEALTH_REGEN_INTERVAL_SECONDS = 2;
+const HEALTH_REGEN_AMOUNT = 2;
+const HEALTH_REGEN_INTERVAL_SECONDS = 1;
 
 export class Game {
   private readonly renderer: Renderer;
@@ -142,6 +142,7 @@ export class Game {
     const interactables = await levelLoader.load(context);
     this.interactionSystem = new InteractionSystem(interactables, context);
 
+    this.player.stats.health = this.player.stats.maxHealth;
     useGameStore.getState().setInventory(this.player.inventory.getAll());
     useGameStore.getState().setMaxHealth(this.player.stats.maxHealth);
     useGameStore.getState().setHealth(this.player.stats.health);
