@@ -28,5 +28,12 @@ export const itemData = [
     description: DISPLAY_TEXT.items.goldKey.description,
     rarity: 'quest',
     category: DISPLAY_TEXT.items.goldKey.category
+  },
+  {
+    id: 'boss_key',
+    name: DISPLAY_TEXT.items.bossKey.name,
+    description: DISPLAY_TEXT.items.bossKey.description,
+    rarity: 'quest',
+    category: DISPLAY_TEXT.items.bossKey.category
   }
 ] as const;

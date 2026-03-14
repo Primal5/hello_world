@@ -54,7 +54,10 @@ export class InteractionSystem {
     }
 
     const canInteract = interactable.canInteract(this.context);
-    setInteractionPrompt(canInteract ? DISPLAY_TEXT.ui.prompt.interact(interactable.label) : null);
+    const label = typeof interactable.label === 'function'
+      ? interactable.label(this.context)
+      : interactable.label;
+    setInteractionPrompt(canInteract ? DISPLAY_TEXT.ui.prompt.interact(label) : null);
   }
 
   tryInteract(): void {

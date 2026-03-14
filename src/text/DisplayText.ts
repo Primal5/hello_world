@@ -11,7 +11,7 @@ export const DISPLAY_TEXT = {
         copperShort: 'PC'
       },
       emptyBag: 'Votre sac est vide.',
-      emptyHint: "Trouvez les coffres pour récupérer les clés de progression.",
+      emptyHint: 'Trouvez les coffres pour récupérer les clés de progression.',
       closeHint: 'Appuyez sur I ou Tab pour fermer.',
       itemCount: (count: number) => `${count} objet${count > 1 ? 's' : ''}`
     },
@@ -57,8 +57,11 @@ export const DISPLAY_TEXT = {
     },
     door: {
       entranceInteractLabel: "ouvrir ou fermer l'entrée",
+      entranceUnlockLabel: "déverrouiller l'entrée",
       interactLabel: 'ouvrir ou fermer la porte',
+      unlockLabel: 'déverrouiller la porte',
       interactNamedLabel: (doorName: string) => `ouvrir ou fermer la ${doorName}`,
+      unlockNamedLabel: (doorName: string) => `déverrouiller la ${doorName}`,
       entranceLocked: "L'entrée est verrouillée. Il faut une clé.",
       entranceLockedItem: (name: string) => `L'entrée est verrouillée. Il faut ${name}.`,
       locked: 'La porte est verrouillée.',
@@ -90,6 +93,11 @@ export const DISPLAY_TEXT = {
     goldKey: {
       name: "Clé d'or",
       description: 'Ouvre la porte vers la zone or.',
+      category: 'Objet de quête'
+    },
+    bossKey: {
+      name: 'Clé du boss',
+      description: 'Ouvre la porte aux trésors.',
       category: 'Objet de quête'
     }
   },

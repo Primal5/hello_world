@@ -38,6 +38,29 @@ export interface DungeonChestDefinition {
 
 export type DungeonRoomType = 'spawn' | 'normal' | 'keyRoom' | 'lockedDoorRoom' | 'boss' | 'treasure';
 export type DungeonZoneId = 'spawn' | 'bronze' | 'silver' | 'gold' | 'boss';
+export type DungeonSpaceKind = 'room' | 'corridor';
+export type DungeonWallFaceSide = 'north' | 'south' | 'west' | 'east';
+
+export interface DungeonWallFaceOpening {
+  id: string;
+  kind: 'door' | 'passage';
+  start: number;
+  end: number;
+}
+
+export interface DungeonWallFace {
+  id: string;
+  spaceId: string;
+  spaceKind: DungeonSpaceKind;
+  roomType?: DungeonRoomType;
+  zoneId?: DungeonZoneId;
+  side: DungeonWallFaceSide;
+  axis: 'x' | 'z';
+  line: number;
+  spanStart: number;
+  spanEnd: number;
+  openings: DungeonWallFaceOpening[];
+}
 
 interface CellCoord {
   col: number;
@@ -120,6 +143,7 @@ export interface DungeonLayout {
   height: number;
   graph: DungeonGraph;
   wallSegments: DungeonWallSegment[];
+  wallFaces: DungeonWallFace[];
   doors: DungeonDoorDefinition[];
   chests: DungeonChestDefinition[];
   npcPosition: THREE.Vector3;
@@ -213,6 +237,7 @@ const ENTRANCE_DOOR_CORRIDOR_ID = 'corridor_spawn_room1';
 const BRONZE_DOOR_CORRIDOR_ID = 'corridor_bronze_silver';
 const SILVER_DOOR_CORRIDOR_ID = 'corridor_silver_gold';
 const GOLD_DOOR_CORRIDOR_ID = 'corridor_gold_boss';
+const BOSS_TREASURE_DOOR_CORRIDOR_ID = 'corridor_boss_treasure';
 const ZONE_ROOM_TARGET = 20;
 const BRONZE_ZONE_ID = 'bronze' as const;
 const SILVER_ZONE_ID = 'silver' as const;
@@ -245,6 +270,7 @@ const SPAWN_NPC_WALL_MARGIN = 0.75;
 export const DUNGEON_CONFIG = {
   size: DUNGEON_SIZE,
   height: WALL_HEIGHT,
+  wallThickness: WALL_THICKNESS,
   ceilingY: WALL_HEIGHT,
   startPosition: new THREE.Vector3(ENTRANCE_X, 0, -3),
   startYaw: 0
@@ -326,6 +352,8 @@ function tryGenerateDungeonLayout(): DungeonLayout {
   const entranceDoorWithKey = getRequiredDoor(doors, 'rusty_key');
   const bronzeDoor = getRequiredDoor(doors, 'bronze_key');
   const silverDoor = getRequiredDoor(doors, 'silver_key');
+  const bossDoor = getRequiredDoor(doors, 'boss_key');
+  const bossRoom = roomById.get('boss');
 
   const rustyChestPosition = getSpawnChestPosition(
     spawnRoom,
@@ -359,6 +387,17 @@ function tryGenerateDungeonLayout(): DungeonLayout {
     [{ position: silverDoor.center, minDistance: MIN_KEY_DISTANCE_FROM_PREVIOUS_DOOR }],
     'Unable to place gold key chest in the gold zone.'
   );
+  if (!bossRoom) {
+    throw new Error('Boss room is missing.');
+  }
+  const bossChestPosition = getRoomChestPositionWithClearances(bossRoom, [
+    ...getRoomDoorClearancePoints(bossRoom, roomDoorCenters),
+    { position: bossDoor.center, minDistance: MIN_KEY_DISTANCE_FROM_PREVIOUS_DOOR }
+  ]);
+  if (!bossChestPosition) {
+    throw new Error('Unable to place boss key chest in the boss room.');
+  }
+  const wallFaces = buildSpaceWallFaces(graph, roomById, doors);
 
   return mirrorDungeonLayout({
     floorCenter: new THREE.Vector3(shell.center.x, 0, shell.center.y),
@@ -367,6 +406,7 @@ function tryGenerateDungeonLayout(): DungeonLayout {
     height: WALL_HEIGHT,
     graph,
     wallSegments: normalizedWallSegments,
+    wallFaces,
     doors,
     chests: [
       { id: 'rusty_key_chest', roomId: 'spawn', position: rustyChestPosition, itemId: 'rusty_key' },
@@ -387,6 +427,12 @@ function tryGenerateDungeonLayout(): DungeonLayout {
         roomId: goldChestPlacement.room.id,
         position: goldChestPlacement.position,
         itemId: 'gold_key'
+      },
+      {
+        id: 'boss_key_chest',
+        roomId: 'boss',
+        position: bossChestPosition,
+        itemId: 'boss_key'
       }
     ],
     npcPosition,
@@ -599,6 +645,28 @@ function tryCreateDungeonGraph(): DungeonGraph | null {
     }
   });
   if (!bossBounds) {
+    return null;
+  }
+
+  const treasureBounds = addRelativeRoom({
+    id: 'treasure_room',
+    type: 'treasure',
+    zoneId: 'boss',
+    from: 'boss',
+    corridorId: BOSS_TREASURE_DOOR_CORRIDOR_ID,
+    maxWidth: 1,
+    options: {
+      base: bossBounds,
+      direction: 'east',
+      gapRange: [1, 1],
+      widthRange: [3, 4],
+      heightRange: [2, 3],
+      lateralDrift: 2,
+      colRange: [44, 47],
+      rowRange: [31, 42]
+    }
+  });
+  if (!treasureBounds) {
     return null;
   }
 
@@ -1115,6 +1183,194 @@ export function getMirroredCorridorWorldBounds(
   };
 }
 
+function buildSpaceWallFaces(
+  graph: DungeonGraph,
+  roomById: Map<string, DungeonRoomNode>,
+  doors: DungeonDoorDefinition[]
+): DungeonWallFace[] {
+  const wallFaces: DungeonWallFace[] = [];
+
+  for (const room of graph.rooms) {
+    const bounds = getRoomWorldBounds(room);
+    wallFaces.push(
+      createWallFace('room', room.id, room.type, room.zoneId, 'north', bounds, doors),
+      createWallFace('room', room.id, room.type, room.zoneId, 'south', bounds, doors),
+      createWallFace('room', room.id, room.type, room.zoneId, 'west', bounds, doors),
+      createWallFace('room', room.id, room.type, room.zoneId, 'east', bounds, doors)
+    );
+  }
+
+  for (const corridor of graph.corridors) {
+    const fromRoom = roomById.get(corridor.from);
+    const toRoom = roomById.get(corridor.to);
+    if (!fromRoom || !toRoom) {
+      continue;
+    }
+
+    const bounds = getCorridorRect(fromRoom, toRoom, corridor);
+    wallFaces.push(
+      createCorridorWallFace(corridor, 'north', bounds),
+      createCorridorWallFace(corridor, 'south', bounds),
+      createCorridorWallFace(corridor, 'west', bounds),
+      createCorridorWallFace(corridor, 'east', bounds)
+    );
+  }
+
+  return wallFaces;
+}
+
+function createWallFace(
+  spaceKind: 'room',
+  spaceId: string,
+  roomType: DungeonRoomType,
+  zoneId: DungeonZoneId,
+  side: DungeonWallFaceSide,
+  bounds: RoomWorldBounds,
+  doors: DungeonDoorDefinition[]
+): DungeonWallFace {
+  const face = createWallFaceBase(spaceKind, spaceId, roomType, zoneId, side, bounds);
+  face.openings = doors
+    .filter((door) => isDoorOnWallFace(door, face))
+    .map((door) => ({
+      id: door.id,
+      kind: 'door' as const,
+      start: getDoorOpeningStart(door, face.axis),
+      end: getDoorOpeningEnd(door, face.axis)
+    }))
+    .sort((left, right) => left.start - right.start);
+  return face;
+}
+
+function createCorridorWallFace(
+  corridor: DungeonCorridorEdge,
+  side: DungeonWallFaceSide,
+  bounds: RoomWorldBounds
+): DungeonWallFace {
+  const face = createWallFaceBase('corridor', corridor.id, undefined, undefined, side, bounds);
+  face.openings = getCorridorFaceOpenings(corridor, face);
+  return face;
+}
+
+function createWallFaceBase(
+  spaceKind: DungeonSpaceKind,
+  spaceId: string,
+  roomType: DungeonRoomType | undefined,
+  zoneId: DungeonZoneId | undefined,
+  side: DungeonWallFaceSide,
+  bounds: RoomWorldBounds
+): DungeonWallFace {
+  if (side === 'north') {
+    return {
+      id: `${spaceKind}_${spaceId}_north`,
+      spaceId,
+      spaceKind,
+      roomType,
+      zoneId,
+      side,
+      axis: 'x',
+      line: bounds.zMin,
+      spanStart: bounds.xMin,
+      spanEnd: bounds.xMax,
+      openings: []
+    };
+  }
+
+  if (side === 'south') {
+    return {
+      id: `${spaceKind}_${spaceId}_south`,
+      spaceId,
+      spaceKind,
+      roomType,
+      zoneId,
+      side,
+      axis: 'x',
+      line: bounds.zMax,
+      spanStart: bounds.xMin,
+      spanEnd: bounds.xMax,
+      openings: []
+    };
+  }
+
+  if (side === 'west') {
+    return {
+      id: `${spaceKind}_${spaceId}_west`,
+      spaceId,
+      spaceKind,
+      roomType,
+      zoneId,
+      side,
+      axis: 'z',
+      line: bounds.xMin,
+      spanStart: bounds.zMin,
+      spanEnd: bounds.zMax,
+      openings: []
+    };
+  }
+
+  return {
+    id: `${spaceKind}_${spaceId}_east`,
+    spaceId,
+    spaceKind,
+    roomType,
+    zoneId,
+    side,
+    axis: 'z',
+    line: bounds.xMax,
+    spanStart: bounds.zMin,
+    spanEnd: bounds.zMax,
+    openings: []
+  };
+}
+
+function getCorridorFaceOpenings(corridor: DungeonCorridorEdge, face: DungeonWallFace): DungeonWallFaceOpening[] {
+  if (corridor.axis === 'z' && (face.side === 'north' || face.side === 'south')) {
+    return [{
+      id: `${corridor.id}_${face.side}_passage`,
+      kind: 'passage',
+      start: face.spanStart,
+      end: face.spanEnd
+    }];
+  }
+
+  if (corridor.axis === 'x' && (face.side === 'west' || face.side === 'east')) {
+    return [{
+      id: `${corridor.id}_${face.side}_passage`,
+      kind: 'passage',
+      start: face.spanStart,
+      end: face.spanEnd
+    }];
+  }
+
+  return [];
+}
+
+function isDoorOnWallFace(door: DungeonDoorDefinition, face: DungeonWallFace): boolean {
+  const lineTolerance = 0.35;
+  if (face.axis === 'x') {
+    return (
+      Math.abs(door.center.z - face.line) <= lineTolerance &&
+      door.center.x >= face.spanStart - door.width &&
+      door.center.x <= face.spanEnd + door.width
+    );
+  }
+
+  return (
+    Math.abs(door.center.x - face.line) <= lineTolerance &&
+    door.center.z >= face.spanStart - door.width &&
+    door.center.z <= face.spanEnd + door.width
+  );
+}
+
+function getDoorOpeningStart(door: DungeonDoorDefinition, axis: 'x' | 'z'): number {
+  const center = axis === 'x' ? door.center.x : door.center.z;
+  return center - door.width / 2;
+}
+
+function getDoorOpeningEnd(door: DungeonDoorDefinition, axis: 'x' | 'z'): number {
+  const center = axis === 'x' ? door.center.x : door.center.z;
+  return center + door.width / 2;
+}
+
 function isInsideRoomBounds(position: THREE.Vector3, bounds: RoomWorldBounds, margin: number): boolean {
   return position.x >= bounds.xMin + margin
     && position.x <= bounds.xMax - margin
@@ -1191,6 +1447,7 @@ function mirrorDungeonLayout(layout: DungeonLayout): DungeonLayout {
     floorCenter: mirrorVector3OnZ(layout.floorCenter),
     ceilingCenter: mirrorVector3OnZ(layout.ceilingCenter),
     wallSegments: layout.wallSegments.map(mirrorWallSegmentOnZ),
+    wallFaces: layout.wallFaces.map(mirrorWallFaceOnZ),
     doors: layout.doors.map(mirrorDoorOnZ),
     chests: layout.chests.map((chest) => ({
       ...chest,
@@ -1225,6 +1482,30 @@ function mirrorDoorOnZ(door: DungeonDoorDefinition): DungeonDoorDefinition {
     ...door,
     center: mirrorVector3OnZ(door.center),
     rotationY: -door.rotationY
+  };
+}
+
+function mirrorWallFaceOnZ(face: DungeonWallFace): DungeonWallFace {
+  if (face.axis === 'x') {
+    return {
+      ...face,
+      side: face.side === 'north' ? 'south' : face.side === 'south' ? 'north' : face.side,
+      line: -face.line,
+      openings: face.openings.map((opening) => ({ ...opening }))
+    };
+  }
+
+  return {
+    ...face,
+    spanStart: -face.spanEnd,
+    spanEnd: -face.spanStart,
+    openings: face.openings
+      .map((opening) => ({
+        ...opening,
+        start: -opening.end,
+        end: -opening.start
+      }))
+      .sort((left, right) => left.start - right.start)
   };
 }
 
@@ -1690,10 +1971,14 @@ function getCorridorRequiredItemId(corridorId: string): string | undefined {
     return 'gold_key';
   }
 
+  if (corridorId === BOSS_TREASURE_DOOR_CORRIDOR_ID) {
+    return 'boss_key';
+  }
+
   return undefined;
 }
 
-function getLockedDoorAnchorZoneId(corridorId: string): Exclude<DungeonZoneId, 'spawn' | 'boss'> {
+function getLockedDoorAnchorZoneId(corridorId: string): DungeonZoneId {
   if (corridorId === BRONZE_DOOR_CORRIDOR_ID) {
     return BRONZE_ZONE_ID;
   }
@@ -1704,6 +1989,10 @@ function getLockedDoorAnchorZoneId(corridorId: string): Exclude<DungeonZoneId, '
 
   if (corridorId === GOLD_DOOR_CORRIDOR_ID) {
     return GOLD_ZONE_ID;
+  }
+
+  if (corridorId === BOSS_TREASURE_DOOR_CORRIDOR_ID) {
+    return 'boss';
   }
 
   throw new Error('Missing anchor room for locked corridor: ' + corridorId);
@@ -1730,6 +2019,10 @@ function getCorridorDoorName(corridorId: string): string | undefined {
 
   if (corridorId === GOLD_DOOR_CORRIDOR_ID) {
     return "porte d'or";
+  }
+
+  if (corridorId === BOSS_TREASURE_DOOR_CORRIDOR_ID) {
+    return 'porte aux tresors';
   }
 
   return undefined;

@@ -39,25 +39,30 @@ public/
 
 - `core/`: orchestration de la boucle de jeu et du bootstrap.
 - `engine/`: rendu, monde 3D, contrôles FPS, raycast, collisions simples.
-- `gameplay/`: joueur, inventaire, interactions, dialogues, quêtes (base extensible).
+- `gameplay/`: joueur, inventaire, interactions, dialogues, quêtes.
 - `ui/`: HUD React + stores Zustand.
-- `data/`: contenu éditable (items, niveau, dialogues).
+- `data/`: contenu éditable.
 
 ## Démo incluse
 
-- Déplacement FPS (WASD + souris + saut espace + gravité).
+- Déplacement FPS (`WASD` + souris + saut espace + gravité).
 - Prompt d’interaction au centre (`E`).
-- Coffre de départ: donne `rusty_key`.
-- Progression par zones verrouillées: `rusty_key`, `bronze_key`, `silver_key`, `gold_key`.
-- Portes nommées: entrée, bronze, argent, or.
-- PNJ: affiche un dialogue dans le journal.
 - Inventaire ouvrable avec `I` ou `Tab`.
-- Pause manuelle avec `P` ou la touche `Pause`.
-- Ouverture de l’inventaire: relâche la souris, fige le monde et active la pause tant que l’inventaire reste ouvert.
-- Overlay `En pause`.
-- Fermeture de l’inventaire via `I`, `Tab`, `Echap` ou la croix UI.
-- Compteur de monnaie dans l’inventaire: cuivre, argent, or.
-- Aperçu 3D de la clé rouillée dans l’inventaire avec zoom au survol.
+- Pause manuelle avec `P` ou `Pause`.
+- Journal éphémère + historique.
+- PNJ de départ avec dialogue.
+- Progression verrouillée par clés:
+  - `rusty_key`
+  - `bronze_key`
+  - `silver_key`
+  - `gold_key`
+  - `boss_key`
+- Portes nommées:
+  - entrée
+  - bronze
+  - argent
+  - or
+  - trésors
 
 ## Assets Meshy / glTF / GLB
 
@@ -78,44 +83,28 @@ Exemples:
 
 ### Comment brancher un modèle Meshy
 
-1. Exportez depuis Meshy en `GLB` ou `GLTF`.
-2. Copiez les fichiers dans `public/assets/models/`.
-3. Mettez à jour `src/engine/ModelRegistry.ts` avec le bon chemin.
-4. Ajustez `scale`, `rotation` et `offset` si le modèle est trop grand, couché ou mal centré.
-5. `Bronze_Door`, `Silver_Door` et `Gold_Door` peuvent réutiliser `Wooden_Door` avec une teinte matériau appliquée dans le code.
+1. Exporter depuis Meshy en `GLB` ou `GLTF`.
+2. Copier les fichiers dans `public/assets/models/`.
+3. Mettre à jour `src/engine/ModelRegistry.ts`.
+4. Ajuster `scale`, `rotation` et `offset` si nécessaire.
+5. `Bronze_Door`, `Silver_Door` et `Gold_Door` peuvent réutiliser `Wooden_Door` avec une teinte matériau appliquée en code.
 
-Exemple:
-
-```ts
-const npc = {
-  path: '/assets/models/meshy/robot-guide/scene.gltf',
-  scale: [0.75, 0.75, 0.75],
-  rotation: [0, Math.PI, 0],
-  offset: [0, 0, 0]
-};
-```
-
-### Ce que le projet gère maintenant
+### Ce que le projet gère
 
 - chargement `.glb` et `.gltf`
-- cache et clonage des modèles pour réutiliser un même asset plusieurs fois
+- cache et clonage des modèles
 - ombres activées sur les meshes importés
 - correction colorimétrique pour les textures
 - centrage horizontal automatique du modèle
 - repositionnement automatique pour poser le mesh sur le sol
-- fallback procédural si un asset manque ou échoue au chargement
+- fallback procédural si un asset manque
 - variantes de portes `Wooden_Door`, `Bronze_Door`, `Silver_Door`, `Gold_Door`
-- teinte matériau appliquée en code pour les portes bronze, argent et or
 
-## Modifier les données de niveau
+## Modifier les données
 
-- Entités du niveau: `src/data/level.ts`.
-- Items: `src/data/items.ts`.
-- Dialogues: `src/data/dialogues.ts`.
-
-## Limite actuelle
-
-Je n’ai pas ajouté de modèle gratuit externe dans le dépôt: l’environnement actuel ne me permet pas d’en télécharger un proprement. En revanche, le projet est prêt à recevoir directement un export Meshy en le déposant dans `public/assets/models/`.
+- Entités du niveau: `src/data/level.ts`
+- Items: `src/data/items.ts`
+- Dialogues: `src/data/dialogues.ts`
 
 ## Extensions futures
 
@@ -124,8 +113,8 @@ Base prête pour ajouter:
 - système de quêtes avancé
 - dialogues à embranchements
 - PNJ dynamiques
-- combat FPS/melee
-- persistance/sauvegarde
+- combat FPS / mêlée
+- persistance / sauvegarde
 
 ## Rappel gameplay
 
@@ -140,101 +129,124 @@ Base prête pour ajouter:
 | epic | Epique | `#be8cff` |
 | legendary | Legendaire | `#ff9b47` |
 | artifact | Artefact | `#ff6b5f` |
-| quest | Objet de quete | `#4ef2d2` |
+| quest | Objet de quête | `#4ef2d2` |
 
 ### Règles de création du donjon
 
-- Génération procédurale avec une grille de **48 x 48 cellules** sur une zone de **160 unités**.
-- Le générateur tente jusqu’à **200 essais** pour produire un graphe valide de salles/couloirs et de transitions de portes.
-- La salle de départ (`spawn`) est fixée en bas de la carte.
-- Trois zones de progression sont générées ensuite, chacune avec **20 salles garanties**:
-  - zone bronze
-  - zone argent
-  - zone or
+- Génération procédurale sur une grille de **48 x 48 cellules** dans une zone de **160 unités**.
+- Jusqu’à **200 essais** pour produire un graphe valide.
+- Salle de départ `spawn` fixée en bas de la carte.
+- Trois zones de progression avec **20 salles garanties**:
+  - bronze
+  - argent
+  - or
 - Le boss est généré après la zone or, derrière la porte d’or.
-- Les salles d’une zone sont placées relativement (nord/sud/est/ouest) dans une bande spatiale dédiée, avec contraintes de taille et de zone autorisée.
+- Une salle aux trésors est générée après le boss.
 - Les salles ne peuvent pas se chevaucher ni se toucher.
-- Les couloirs sont générés à partir des recouvrements entre salles, avec des largeurs choisies parmi **0.5 / 0.75 / 1** (selon la largeur maximale autorisée du couloir).
+- Les couloirs sont générés à partir des recouvrements entre salles.
 - Les portes intérieures sont créées aux transitions salle/couloir.
-- Les pans de mur autour des portes sont reconstruits par mur logique, et non plus porte par porte.
-- Les layouts où une ouverture utile est trop étroite pour la porte sont rejetés puis régénérés.
-- Les portes spéciales délimitent la progression entre zones:
+- Les pans de mur autour des portes sont reconstruits par mur logique.
+- Les layouts où une ouverture utile est trop étroite sont rejetés puis régénérés.
+- Les portes spéciales délimitent la progression:
   - porte d’entrée entre `spawn` et la zone bronze
-  - porte de bronze entre les zones bronze et argent
-  - porte d’argent entre les zones argent et or
-  - porte d’or entre la zone or et le boss
+  - porte de bronze entre bronze et argent
+  - porte d’argent entre argent et or
+  - porte d’or entre or et boss
+  - porte aux trésors entre boss et salle aux trésors
 - L’usage d’une clé est séparé de l’ouverture:
   - 1re interaction: la clé est utilisée et consommée
   - 2e interaction: la porte s’ouvre
-- Le PNJ de départ est positionné près de la porte d’entrée du donjon.
-- Le coffre de départ est placé aléatoirement dans la salle `spawn`, en respectant des distances minimales vis-à-vis de la porte d’entrée, du PNJ et du point de départ joueur.
+- Le PNJ de départ est placé près de la porte d’entrée.
+- Le coffre de départ est placé aléatoirement dans `spawn` avec distances minimales vis-à-vis de la porte d’entrée, du PNJ et du point de départ joueur.
 - Les coffres de progression sont placés aléatoirement dans leur zone:
   - `bronze_key` dans la zone bronze
   - `silver_key` dans la zone argent
   - `gold_key` dans la zone or
-- Les coffres hors `spawn` respectent aussi une distance de sécurité vis-à-vis des portes de leur salle, pour ne jamais apparaître juste devant un passage.
+- Un coffre supplémentaire dans la salle du boss donne `boss_key`.
+- Les coffres hors `spawn` respectent une distance de sécurité vis-à-vis des portes de leur salle.
+
+### Découpage logique des espaces
+
+- Le donjon expose des **faces de murs par espace logique**.
+- Chaque salle et chaque couloir fournit 4 faces:
+  - `north`
+  - `south`
+  - `west`
+  - `east`
+- Chaque face décrit:
+  - sa portée utile
+  - ses ouvertures (`door` ou `passage`)
+- Cette couche logique sert de base:
+  - au placement des lampes murales
+  - aux futurs traitements de sol par salle et par couloir
+- Le rendu géométrique des murs reste distinct de cette couche logique: la géométrie affichée ne doit plus piloter seule la logique de placement.
 
 ### Sols et murs
 
 - Sol global du donjon: `Dalles_Claires`.
-- Salle `spawn`: overlay dédié en `Dalles_Jade`.
-- Les murs utilisent la texture `public/assets/textures/walls/clairs/Dalles_Claires.jpg`.
+- Salle `spawn`: sol dédié en `Pierre_Claire`.
+- Les murs utilisent `public/assets/textures/walls/clairs/Dalles_Claires.jpg`.
 - Le sol garde un matériau PBR avec repeat, anisotropy et variation macro.
-- Le motif floral procédural est réservé à `Dalles_Jade` et n’est plus injecté dans le sol global.
+- Le motif floral procédural reste réservé à `Dalles_Jade`.
 
 ### Règle de placement des lampes murales
 
 - Les lampes murales se placent uniquement sur des pans de mur libres, jamais à proximité immédiate d’une porte.
-- Une zone de sécurité doit être réservée autour de chaque porte avant tout placement de lampe.
-- Le mur est découpé en sections libres entre portes, angles et obstacles réservés.
+- Une zone de sécurité est réservée autour de chaque porte avant tout placement.
+- Le placement part des **faces de murs des salles et des couloirs**, pas des segments de murs fusionnés du rendu.
+- Chaque face retire explicitement ses ouvertures avant de calculer ses sections libres.
+- Le mur est ensuite découpé en sections libres entre portes, passages et marges réservées.
 - Pour une section libre courte, on place une seule lampe centrée sur la section.
-- Pour une section plus longue, le nombre de lampes dépend directement de la longueur disponible, sur une base d’environ **1 lampe tous les 6 mètres**.
+- Pour une section plus longue, le nombre de lampes dépend de la longueur disponible, sur une base d’environ **1 lampe tous les 6 mètres**.
 - Chaque pièce conserve au moins un pan de mur éclairé dès qu’un mur éligible existe.
-- D’une pièce à l’autre, le nombre de murs effectivement éclairés varie de manière aléatoire parmi les pans de murs éligibles.
+- D’une pièce à l’autre, le nombre de murs effectivement éclairés varie de manière aléatoire parmi les pans éligibles.
 - Les couloirs reçoivent eux aussi des lampes:
   - en général `1` lampe sur un couloir court
   - jusqu’à `2` lampes sur un couloir plus long
-- Quand plusieurs lampes sont retenues sur une même section, elles sont réparties uniformément:
-  - 2 lampes: positions à `1/3` et `2/3`
-  - 3 lampes: positions à `1/4`, `2/4`, `3/4`
-  - et ainsi de suite
+- Quand plusieurs lampes sont retenues sur une même section, elles sont réparties uniformément.
 - Si une section n’est pas assez longue pour accueillir une lampe avec ses marges, on n’en place aucune.
+- Salle du boss: lampes rouges.
+- Salle aux trésors: lampes or.
 
-### Objets utilisables (objets)
-
-> État actuel des données :
+### Objets utilisables
 
 - **Clé rouillée** (`rusty_key`)
-  - Type : objet de quête
-  - Rareté : `quest`
-  - Description : « Ouvre la porte d’entrée vers le secteur de départ. »
-  - Obtention : dans le coffre de départ
-  - Utilisation : consommée pour déverrouiller la porte d’entrée
+  - Type: objet de quête
+  - Rareté: `quest`
+  - Description: ouvre la porte d’entrée vers le secteur de départ
+  - Obtention: coffre de départ
+  - Utilisation: déverrouille la porte d’entrée
 
 - **Clé de bronze** (`bronze_key`)
-  - Type : objet de quête
-  - Rareté : `quest`
-  - Description : « Ouvre la porte vers le secteur bronze. »
-  - Obtention : dans un coffre aléatoire de la zone bronze
-  - Utilisation : consommée pour déverrouiller la porte de bronze
+  - Type: objet de quête
+  - Rareté: `quest`
+  - Description: ouvre la porte vers le secteur bronze
+  - Obtention: coffre aléatoire de la zone bronze
+  - Utilisation: déverrouille la porte de bronze
 
 - **Clé d’argent** (`silver_key`)
-  - Type : objet de quête
-  - Rareté : `quest`
-  - Description : « Ouvre la porte vers la zone argent. »
-  - Obtention : dans un coffre aléatoire de la zone argent
-  - Utilisation : consommée pour déverrouiller la porte d’argent
+  - Type: objet de quête
+  - Rareté: `quest`
+  - Description: ouvre la porte vers la zone argent
+  - Obtention: coffre aléatoire de la zone argent
+  - Utilisation: déverrouille la porte d’argent
 
 - **Clé d’or** (`gold_key`)
-  - Type : objet de quête
-  - Rareté : `quest`
-  - Description : « Ouvre la porte vers la zone or. »
-  - Obtention : dans un coffre aléatoire de la zone or
-  - Utilisation : consommée pour déverrouiller la porte d’or
+  - Type: objet de quête
+  - Rareté: `quest`
+  - Description: ouvre la porte vers la zone or
+  - Obtention: coffre aléatoire de la zone or
+  - Utilisation: déverrouille la porte d’or
 
-### Objets utilisables liés aux PNJ
+- **Clé du boss** (`boss_key`)
+  - Type: objet de quête
+  - Rareté: `quest`
+  - Description: ouvre la porte aux trésors
+  - Obtention: coffre de la salle du boss
+  - Utilisation: déverrouille la porte aux trésors
 
-- Le PNJ actuel (garde du didacticiel) ne consomme pas d’objet directement.
-- Il indique cependant que la **Clé rouillée** permet d’ouvrir la porte d’entrée.
+### Objets liés aux PNJ
+
+- Le PNJ actuel ne consomme pas d’objet directement.
+- Il indique que la **clé rouillée** permet d’ouvrir la porte d’entrée.
 - Aucun autre objet utilisable spécifique aux PNJ n’est défini pour l’instant.
-

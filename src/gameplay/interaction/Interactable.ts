@@ -3,7 +3,7 @@ import type { InteractionContext } from './InteractionSystem';
 
 export interface Interactable {
   id: string;
-  label: string;
+  label: string | ((context: InteractionContext) => string);
   object3D: THREE.Object3D;
   canInteract: (context: InteractionContext) => boolean;
   interact: (context: InteractionContext) => void;
