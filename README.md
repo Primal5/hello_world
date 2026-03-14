@@ -176,11 +176,11 @@ Base prête pour ajouter:
 
 ### Sols et murs
 
-- Sol global du donjon: `Pierre_Dure`.
+- Sol global du donjon: `Dalles_Claires`.
 - Salle `spawn`: overlay dédié en `Dalles_Jade`.
-- Les murs utilisent la texture `public/assets/textures/walls/medieval/Sombre.jpg`.
+- Les murs utilisent la texture `public/assets/textures/walls/clairs/Dalles_Claires.jpg`.
 - Le sol garde un matériau PBR avec repeat, anisotropy et variation macro.
-- Le motif floral procédural est réservé à `Dalles_Jade` et n’est plus injecté dans `Pierre_Dure`.
+- Le motif floral procédural est réservé à `Dalles_Jade` et n’est plus injecté dans le sol global.
 
 ### Objets utilisables (objets)
 

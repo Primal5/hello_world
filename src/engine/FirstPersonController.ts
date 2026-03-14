@@ -10,6 +10,10 @@ export class FirstPersonController {
   private pitch: number;
   private readonly up = new THREE.Vector3(0, 1, 0);
   private pointerLocked = false;
+  private isCrouching = false;
+  private isSprinting = false;
+  private playerHeight: number = GAME_CONFIG.player.height;
+  private eyeOffset: number = GAME_CONFIG.player.eyeOffset;
 
   constructor(
     private readonly camera: THREE.PerspectiveCamera,
@@ -34,6 +38,9 @@ export class FirstPersonController {
   }
 
   update(delta: number): void {
+    this.updateCrouchState();
+    this.isSprinting = false;
+
     const moveDir = new THREE.Vector3();
     if (this.input.isPressed('KeyW')) moveDir.z -= 1;
     if (this.input.isPressed('KeyS')) moveDir.z += 1;
@@ -46,18 +53,32 @@ export class FirstPersonController {
       this.camera.getWorldDirection(forward);
       forward.y = 0;
       forward.normalize();
+      const isSprinting =
+        !this.isCrouching &&
+        (this.input.isPressed('ShiftLeft') || this.input.isPressed('ShiftRight'));
+      this.isSprinting = isSprinting;
+      const moveSpeed = this.isCrouching
+        ? GAME_CONFIG.player.crouchMoveSpeed
+        : isSprinting
+          ? GAME_CONFIG.player.sprintSpeed
+          : GAME_CONFIG.player.moveSpeed;
 
       const right = new THREE.Vector3().crossVectors(forward, this.up).normalize();
       const movement = new THREE.Vector3()
         .addScaledVector(forward, -moveDir.z)
         .addScaledVector(right, moveDir.x)
-        .multiplyScalar(GAME_CONFIG.player.moveSpeed * delta);
+        .multiplyScalar(moveSpeed * delta);
 
-      const nextPosition = this.collisionWorld.move(this.player.position, movement, GAME_CONFIG.player.radius, GAME_CONFIG.player.height);
+      const nextPosition = this.collisionWorld.move(
+        this.player.position,
+        movement,
+        GAME_CONFIG.player.radius,
+        this.playerHeight
+      );
       this.player.position.copy(nextPosition);
     }
 
-    if (this.input.isPressed('Space') && this.player.isGrounded) {
+    if (!this.isCrouching && this.input.isPressed('Space') && this.player.isGrounded) {
       this.player.velocity.y = GAME_CONFIG.player.jumpVelocity;
       this.player.isGrounded = false;
     }
@@ -67,7 +88,7 @@ export class FirstPersonController {
 
     const clamped = this.collisionWorld.clampVertical(
       this.player.position.y,
-      GAME_CONFIG.player.height,
+      this.playerHeight,
       this.player.position.x,
       this.player.position.z,
       GAME_CONFIG.player.radius
@@ -84,7 +105,19 @@ export class FirstPersonController {
       this.player.isGrounded = false;
     }
 
-    this.syncCameraTransform();
+    this.syncCameraTransform(delta);
+  }
+
+  getIsSprinting(): boolean {
+    return this.isSprinting;
+  }
+
+  getIsCrouching(): boolean {
+    return this.isCrouching;
+  }
+
+  getIsJumping(): boolean {
+    return !this.player.isGrounded;
   }
 
   requestPointerLock(): void {
@@ -99,10 +132,32 @@ export class FirstPersonController {
     }
   }
 
-  private syncCameraTransform(): void {
+  private syncCameraTransform(delta = 1): void {
+    const targetEyeOffset = this.isCrouching
+      ? GAME_CONFIG.player.crouchEyeOffset
+      : GAME_CONFIG.player.eyeOffset;
+    const interpolation = Math.min(1, delta * GAME_CONFIG.player.crouchTransitionSpeed);
+    this.eyeOffset = THREE.MathUtils.lerp(this.eyeOffset, targetEyeOffset, interpolation);
     this.camera.position.copy(this.player.position);
-    this.camera.position.y += GAME_CONFIG.player.eyeOffset;
+    this.camera.position.y += this.eyeOffset;
     this.camera.rotation.set(this.pitch, this.yaw, 0);
+  }
+
+  private updateCrouchState(): void {
+    const wantsCrouch =
+      this.input.isPressed('ControlLeft') || this.input.isPressed('ControlRight');
+    const canStand = this.collisionWorld.canOccupy(
+      this.player.position.x,
+      this.player.position.z,
+      this.player.position.y,
+      GAME_CONFIG.player.radius,
+      GAME_CONFIG.player.height
+    );
+
+    this.isCrouching = wantsCrouch || !canStand;
+    this.playerHeight = this.isCrouching
+      ? GAME_CONFIG.player.crouchHeight
+      : GAME_CONFIG.player.height;
   }
 
   private bindPointerLock(): void {

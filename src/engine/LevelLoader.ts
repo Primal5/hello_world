@@ -37,9 +37,12 @@ const DOOR_MODEL_SIZE = {
   height: 2.000000298023224,
   width: 1.4043151140213013
 } as const;
+const SPAWN_THRESHOLD_HEIGHT = 0.0225;
+const SPAWN_THRESHOLD_Y_OFFSET = 0.008;
 
 export class LevelLoader {
   private readonly wallTexture = this.createWallTexture();
+  private readonly thresholdWoodTexture = this.createThresholdWoodTexture();
   private readonly animationMixers: THREE.AnimationMixer[] = [];
   private readonly animationUpdaters: Array<(delta: number) => void> = [];
 
@@ -241,7 +244,7 @@ export class LevelLoader {
       size,
       this.assetLoader.getMaxAnisotropy(),
       {
-        albedoPath: '/assets/textures/floors/pierre/Pierre_Dure.jpg',
+        albedoPath: '/assets/textures/floors/pierre/Dalles_Claires.jpg',
         worldOffset
       }
     );
@@ -279,7 +282,10 @@ export class LevelLoader {
       const spawnMaterials = await createGroundMaterialSet(
         spawnSize,
         this.assetLoader.getMaxAnisotropy(),
-        { worldOffset: spawnOffset }
+        {
+          albedoPath: '/assets/textures/floors/pierre/Pierre_Claire.jpg',
+          worldOffset: spawnOffset
+        }
       );
 
       const spawnFloor = new THREE.Mesh(
@@ -304,6 +310,11 @@ export class LevelLoader {
       this.scene.add(spawnVariation);
     }
 
+    const spawnEntranceDoor = layout.doors.find((door) => door.entrance);
+    if (spawnEntranceDoor) {
+      this.addSpawnThreshold(spawnEntranceDoor, floorCenter.y);
+    }
+
     const ceiling = new THREE.Mesh(
       new THREE.PlaneGeometry(size.x, size.y),
       new THREE.MeshStandardMaterial({ color: '#7f7a70', side: THREE.DoubleSide })
@@ -312,6 +323,52 @@ export class LevelLoader {
     ceiling.position.copy(ceilingCenter);
     ceiling.receiveShadow = ENABLE_SHADOWS;
     this.scene.add(ceiling);
+  }
+
+  private addSpawnThreshold(door: DungeonDoorDefinition, floorY: number): void {
+    const thresholdSize = new THREE.Vector2(
+      door.width,
+      door.depth / 4
+    );
+    const threshold = new THREE.Mesh(
+      new THREE.BoxGeometry(thresholdSize.x, SPAWN_THRESHOLD_HEIGHT, thresholdSize.y),
+      this.createThresholdWoodMaterial(thresholdSize)
+    );
+    threshold.rotation.y = door.rotationY;
+    threshold.position.set(
+      door.center.x,
+      floorY + SPAWN_THRESHOLD_Y_OFFSET + SPAWN_THRESHOLD_HEIGHT / 2,
+      door.center.z
+    );
+    threshold.castShadow = ENABLE_SHADOWS;
+    threshold.receiveShadow = ENABLE_SHADOWS;
+    threshold.renderOrder = 4;
+    this.scene.add(threshold);
+  }
+
+  private createThresholdWoodMaterial(size: THREE.Vector2): THREE.MeshStandardMaterial[] {
+    const topTexture = this.thresholdWoodTexture.clone();
+    topTexture.needsUpdate = true;
+    topTexture.wrapS = THREE.RepeatWrapping;
+    topTexture.wrapT = THREE.RepeatWrapping;
+    topTexture.repeat.set(Math.max(size.x / 0.45, 1), 1);
+    topTexture.anisotropy = this.assetLoader.getMaxAnisotropy();
+
+    const sideTexture = this.thresholdWoodTexture.clone();
+    sideTexture.needsUpdate = true;
+    sideTexture.wrapS = THREE.RepeatWrapping;
+    sideTexture.wrapT = THREE.RepeatWrapping;
+    sideTexture.repeat.set(Math.max(size.x / 0.55, 1), 1);
+    sideTexture.anisotropy = this.assetLoader.getMaxAnisotropy();
+
+    return [
+      new THREE.MeshStandardMaterial({ color: '#6b4727', map: sideTexture }),
+      new THREE.MeshStandardMaterial({ color: '#6b4727', map: sideTexture }),
+      new THREE.MeshStandardMaterial({ color: '#8b5a2b', map: topTexture }),
+      new THREE.MeshStandardMaterial({ color: '#5c3d21' }),
+      new THREE.MeshStandardMaterial({ color: '#744b29', map: sideTexture }),
+      new THREE.MeshStandardMaterial({ color: '#744b29', map: sideTexture })
+    ];
   }
 
   private addExteriorGroundRing(center: THREE.Vector3, outerSize: THREE.Vector2, innerSize: number): void {
@@ -399,7 +456,7 @@ export class LevelLoader {
       const rendered = this.getRenderedWall(segment, behavior);
       const wall = new THREE.Mesh(
         new THREE.BoxGeometry(rendered.size.x, rendered.size.y, rendered.size.z),
-        this.createWallMaterial(rendered.size)
+        this.createWallMaterial(rendered.center, rendered.size)
       );
       wall.position.copy(rendered.center);
       wall.castShadow = ENABLE_SHADOWS;
@@ -523,33 +580,116 @@ export class LevelLoader {
     const playerOffset = playerPosition.clone().sub(definition.center);
     return playerOffset.dot(facing) <= 0 ? Math.PI / 2 : -Math.PI / 2;
   }
-  private createWallMaterial(size: THREE.Vector3): THREE.MeshStandardMaterial[] {
-    const faceXTexture = this.createRepeatedWallTexture(size.z, size.y);
-    const faceYTexture = this.createRepeatedWallTexture(size.x, size.z);
-    const faceZTexture = this.createRepeatedWallTexture(size.x, size.y);
+  private createWallMaterial(center: THREE.Vector3, size: THREE.Vector3): THREE.MeshStandardMaterial[] {
+    const faceXTexture = this.createRepeatedWallTexture(
+      size.z,
+      size.y,
+      center.z - size.z / 2,
+      center.y - size.y / 2
+    );
+    const faceYTexture = this.createRepeatedWallTexture(
+      size.x,
+      size.z,
+      center.x - size.x / 2,
+      center.z - size.z / 2,
+      2,
+      2
+    );
+    const faceZTexture = this.createRepeatedWallTexture(
+      size.x,
+      size.y,
+      center.x - size.x / 2,
+      center.y - size.y / 2
+    );
 
     return [
       new THREE.MeshStandardMaterial({ map: faceXTexture, color: '#ffffff' }),
-      new THREE.MeshStandardMaterial({ map: this.createRepeatedWallTexture(size.z, size.y), color: '#ffffff' }),
+      new THREE.MeshStandardMaterial({
+        map: this.createRepeatedWallTexture(size.z, size.y, center.z - size.z / 2, center.y - size.y / 2),
+        color: '#ffffff'
+      }),
       new THREE.MeshStandardMaterial({ map: faceYTexture, color: '#f2f2f2' }),
-      new THREE.MeshStandardMaterial({ map: this.createRepeatedWallTexture(size.x, size.z), color: '#ebebeb' }),
+      new THREE.MeshStandardMaterial({
+        map: this.createRepeatedWallTexture(size.x, size.z, center.x - size.x / 2, center.z - size.z / 2, 2, 2),
+        color: '#ebebeb'
+      }),
       new THREE.MeshStandardMaterial({ map: faceZTexture, color: '#ffffff' }),
-      new THREE.MeshStandardMaterial({ map: this.createRepeatedWallTexture(size.x, size.y), color: '#ffffff' })
+      new THREE.MeshStandardMaterial({
+        map: this.createRepeatedWallTexture(size.x, size.y, center.x - size.x / 2, center.y - size.y / 2),
+        color: '#ffffff'
+      })
     ];
   }
 
-  private createRepeatedWallTexture(width: number, height: number): THREE.Texture {
+  private createRepeatedWallTexture(
+    width: number,
+    height: number,
+    offsetU = 0,
+    offsetV = 0,
+    tileWidth = 2,
+    tileHeight = 1
+  ): THREE.Texture {
     const texture = this.wallTexture.clone();
     texture.needsUpdate = true;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(Math.max(width / 2, 0.01), Math.max(height / 2, 0.01));
+    texture.repeat.set(Math.max(width / tileWidth, 0.01), Math.max(height / tileHeight, 0.01));
+    texture.offset.set(
+      THREE.MathUtils.euclideanModulo(offsetU / tileWidth, 1),
+      THREE.MathUtils.euclideanModulo(offsetV / tileHeight, 1)
+    );
     texture.anisotropy = this.assetLoader.getMaxAnisotropy();
     return texture;
   }
 
   private createWallTexture(): THREE.Texture {
-    const texture = new THREE.TextureLoader().load('/assets/textures/walls/medieval/Sombre.jpg');
+    const texture = new THREE.TextureLoader().load('/assets/textures/walls/clairs/Dalles_Claires.jpg');
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.anisotropy = this.assetLoader.getMaxAnisotropy();
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  private createThresholdWoodTexture(): THREE.Texture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      const fallback = new THREE.Texture();
+      fallback.needsUpdate = true;
+      return fallback;
+    }
+
+    const gradient = ctx.createLinearGradient(0, 0, 256, 0);
+    gradient.addColorStop(0, '#7a512e');
+    gradient.addColorStop(0.24, '#9a6a3a');
+    gradient.addColorStop(0.5, '#6c4526');
+    gradient.addColorStop(0.76, '#8b5a30');
+    gradient.addColorStop(1, '#5c3a20');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    for (let index = 0; index < 22; index += 1) {
+      const x = (index / 22) * canvas.width;
+      ctx.fillStyle = index % 3 === 0 ? 'rgba(55,28,12,0.16)' : 'rgba(255,230,180,0.07)';
+      ctx.fillRect(x, 0, 3 + (index % 4), canvas.height);
+    }
+
+    for (let index = 0; index < 80; index += 1) {
+      const x = (index * 31) % canvas.width;
+      const y = (index * 17) % canvas.height;
+      const width = 10 + (index % 7) * 8;
+      const height = 1 + (index % 3);
+      ctx.fillStyle = index % 2 === 0 ? 'rgba(255,255,255,0.05)' : 'rgba(45,20,8,0.08)';
+      ctx.fillRect(x, y, width, height);
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;

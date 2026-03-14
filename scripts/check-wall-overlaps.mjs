@@ -1,6 +1,5 @@
 import { build } from 'esbuild';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -24,7 +23,9 @@ const result = await build({
   write: false
 });
 
-const outfile = path.join(os.tmpdir(), `dungeon-check-${Date.now()}.mjs`);
+const tempDir = path.join(process.cwd(), 'scripts', 'temp');
+await fs.mkdir(tempDir, { recursive: true });
+const outfile = path.join(tempDir, `dungeon-check-${Date.now()}.mjs`);
 await fs.writeFile(outfile, result.outputFiles[0].text, 'utf8');
 
 try {

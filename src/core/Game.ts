@@ -44,6 +44,7 @@ export class Game {
   private levelLoader?: LevelLoader;
   private northYaw = 0;
   private healthRegenElapsed = 0;
+  private wasDialogueOpen = false;
 
   constructor(private readonly container: HTMLElement) {
     this.renderer = new Renderer(container);
@@ -142,12 +143,14 @@ export class Game {
     const interactables = await levelLoader.load(context);
     this.interactionSystem = new InteractionSystem(interactables, context);
 
-    this.player.stats.health = this.player.stats.maxHealth;
     useGameStore.getState().setInventory(this.player.inventory.getAll());
     useGameStore.getState().setMaxHealth(this.player.stats.maxHealth);
     useGameStore.getState().setHealth(this.player.stats.health);
     this.northYaw = this.world.camera.rotation.y;
     useGameStore.getState().setCompassHeading(0);
+    useGameStore.getState().setIsCrouching(false);
+    useGameStore.getState().setIsJumping(false);
+    useGameStore.getState().setIsSprinting(false);
     useUiStore.getState().addJournalEntry(DISPLAY_TEXT.ui.log.welcome);
 
     window.addEventListener('resize', this.onResize);
@@ -177,16 +180,33 @@ export class Game {
     const uiState = useUiStore.getState();
     const dialogueBox = uiState.dialogueBox;
     const isDialogueOpen = Boolean(dialogueBox);
+    if (isDialogueOpen && !this.pauseController.hasReason('dialogue')) {
+      this.pauseController.activate('dialogue');
+    } else if (!isDialogueOpen && this.pauseController.hasReason('dialogue')) {
+      this.pauseController.deactivate('dialogue');
+    }
+
     const isInventoryOpen = uiState.isInventoryOpen;
     const isJournalOpen = uiState.isJournalOpen;
     const isUiBlocking = isDialogueOpen || isInventoryOpen || isJournalOpen;
-    const isGamePaused = uiState.isPaused;
+    const isGamePaused = this.pauseController.isPaused();
 
     if (!isUiBlocking && !isGamePaused) {
       this.controller.update(delta);
+      useGameStore.getState().setIsCrouching(this.controller.getIsCrouching());
+      useGameStore.getState().setIsJumping(this.controller.getIsJumping());
+      useGameStore.getState().setIsSprinting(this.controller.getIsSprinting());
     } else {
       this.interactionSystem?.setFocused(null);
+      useGameStore.getState().setIsCrouching(false);
+      useGameStore.getState().setIsJumping(false);
+      useGameStore.getState().setIsSprinting(false);
     }
+
+    if (this.wasDialogueOpen && !isDialogueOpen && !this.pauseController.isPaused()) {
+      this.controller.requestPointerLock();
+    }
+    this.wasDialogueOpen = isDialogueOpen;
 
     if (isGamePaused) {
       return;
@@ -261,6 +281,7 @@ export class Game {
     }
 
     if (event.code === 'KeyE') {
+      event.preventDefault();
       if (uiState.isInventoryOpen || uiState.isJournalOpen || uiState.isPaused) {
         return;
       }

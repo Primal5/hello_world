@@ -51,6 +51,24 @@ export class CollisionWorld {
     return next;
   }
 
+  canOccupy(x: number, z: number, y: number, radius: number, playerHeight: number): boolean {
+    if (y < this.groundY || y + playerHeight > this.ceilingY) {
+      return false;
+    }
+
+    for (const obstacle of this.obstacles.values()) {
+      if (!this.intersectsCircle(x, z, radius, obstacle)) {
+        continue;
+      }
+
+      if (this.overlapsVertical(y, playerHeight, obstacle)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   clampVertical(
     y: number,
     playerHeight: number,

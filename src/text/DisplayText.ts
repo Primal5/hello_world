@@ -23,6 +23,7 @@ export const DISPLAY_TEXT = {
     },
     pause: {
       label: 'En pause',
+      dialogueLabel: 'En discussion',
       toggleKeyCodes: ['KeyP', 'Pause']
     },
     prompt: {

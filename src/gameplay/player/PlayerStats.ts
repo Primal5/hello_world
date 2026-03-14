@@ -5,7 +5,7 @@ export interface PlayerStats {
 }
 
 export const defaultPlayerStats: PlayerStats = {
-  health: 24,
+  health: 100,
   maxHealth: 100,
   stamina: 100
 };
