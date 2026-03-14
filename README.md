@@ -172,6 +172,7 @@ Base prête pour ajouter:
   - `bronze_key` dans la zone bronze
   - `silver_key` dans la zone argent
   - `gold_key` dans la zone or
+- Les coffres hors `spawn` respectent aussi une distance de sécurité vis-à-vis des portes de leur salle, pour ne jamais apparaître juste devant un passage.
 
 ### Sols et murs
 

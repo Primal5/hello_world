@@ -58,6 +58,11 @@ interface RoomWorldBounds {
   zMax: number;
 }
 
+interface ClearancePoint {
+  position: THREE.Vector3;
+  minDistance: number;
+}
+
 interface CorridorTransition {
   roomId: string;
   center: THREE.Vector3;
@@ -229,6 +234,10 @@ const ZONE_REGIONS: Record<'bronze' | 'silver' | 'gold', ZoneRegion> = {
 const MIN_KEY_DISTANCE_FROM_SPAWN = 5;
 const MIN_KEY_DISTANCE_FROM_ENTRANCE = 5;
 const MIN_KEY_DISTANCE_FROM_PREVIOUS_DOOR = 5;
+const CHEST_DOOR_CLEARANCE = 3.25;
+const CHEST_WALL_MARGIN = 1;
+const CHEST_POSITION_ATTEMPTS = 200;
+const CHEST_POSITION_GRID_STEP = 0.25;
 const SPAWN_NPC_X_OFFSET = 2;
 const SPAWN_NPC_Z_OFFSET = 0.9;
 const SPAWN_NPC_WALL_MARGIN = 0.75;
@@ -280,6 +289,7 @@ function tryGenerateDungeonLayout(): DungeonLayout {
   const wallSegments = buildWallSegments(horizontalEdges, verticalEdges);
 
   const doors: DungeonDoorDefinition[] = [];
+  const roomDoorCenters = new Map<string, THREE.Vector3[]>();
   const doorPlacements: DoorTransitionPlacement[] = [];
   let interiorDoorIndex = 0;
   for (const corridor of graph.corridors) {
@@ -291,8 +301,12 @@ function tryGenerateDungeonLayout(): DungeonLayout {
 
     const transitions = createCorridorTransitions(corridor, fromRoom, toRoom);
     for (const transition of transitions) {
+      const door = createInteriorDoor(transition, interiorDoorIndex);
+      const doorCenters = roomDoorCenters.get(transition.roomId) ?? [];
+      doorCenters.push(door.center.clone());
+      roomDoorCenters.set(transition.roomId, doorCenters);
       doorPlacements.push({ transition, index: interiorDoorIndex });
-      doors.push(createInteriorDoor(transition, interiorDoorIndex));
+      doors.push(door);
       interiorDoorIndex += 1;
     }
   }
@@ -321,12 +335,30 @@ function tryGenerateDungeonLayout(): DungeonLayout {
     MIN_KEY_DISTANCE_FROM_SPAWN
   );
 
-  const bronzeChestRoom = pickBronzeChestRoom(graph, roomById);
-  const silverChestRoom = pickSilverChestRoom(graph, roomById);
-  const goldChestRoom = pickGoldChestRoom(graph, roomById);
-  const bronzeChestPosition = getRoomChestPositionWithClearance(bronzeChestRoom, [entranceDoorWithKey.center], MIN_KEY_DISTANCE_FROM_ENTRANCE);
-  const silverChestPosition = getRoomChestPositionWithClearance(silverChestRoom, [bronzeDoor.center], MIN_KEY_DISTANCE_FROM_PREVIOUS_DOOR);
-  const goldChestPosition = getRoomChestPositionWithClearance(goldChestRoom, [silverDoor.center], MIN_KEY_DISTANCE_FROM_PREVIOUS_DOOR);
+  const bronzeChestPlacement = pickChestPlacementWithinZone(
+    graph,
+    roomById,
+    BRONZE_ZONE_ID,
+    roomDoorCenters,
+    [{ position: entranceDoorWithKey.center, minDistance: MIN_KEY_DISTANCE_FROM_ENTRANCE }],
+    'Unable to place bronze key chest in the bronze zone.'
+  );
+  const silverChestPlacement = pickChestPlacementWithinZone(
+    graph,
+    roomById,
+    SILVER_ZONE_ID,
+    roomDoorCenters,
+    [{ position: bronzeDoor.center, minDistance: MIN_KEY_DISTANCE_FROM_PREVIOUS_DOOR }],
+    'Unable to place silver key chest in the silver zone.'
+  );
+  const goldChestPlacement = pickChestPlacementWithinZone(
+    graph,
+    roomById,
+    GOLD_ZONE_ID,
+    roomDoorCenters,
+    [{ position: silverDoor.center, minDistance: MIN_KEY_DISTANCE_FROM_PREVIOUS_DOOR }],
+    'Unable to place gold key chest in the gold zone.'
+  );
 
   return mirrorDungeonLayout({
     floorCenter: new THREE.Vector3(shell.center.x, 0, shell.center.y),
@@ -338,9 +370,24 @@ function tryGenerateDungeonLayout(): DungeonLayout {
     doors,
     chests: [
       { id: 'rusty_key_chest', roomId: 'spawn', position: rustyChestPosition, itemId: 'rusty_key' },
-      { id: 'bronze_key_chest', roomId: bronzeChestRoom.id, position: bronzeChestPosition, itemId: 'bronze_key' },
-      { id: 'silver_key_chest', roomId: silverChestRoom.id, position: silverChestPosition, itemId: 'silver_key' },
-      { id: 'gold_key_chest', roomId: goldChestRoom.id, position: goldChestPosition, itemId: 'gold_key' }
+      {
+        id: 'bronze_key_chest',
+        roomId: bronzeChestPlacement.room.id,
+        position: bronzeChestPlacement.position,
+        itemId: 'bronze_key'
+      },
+      {
+        id: 'silver_key_chest',
+        roomId: silverChestPlacement.room.id,
+        position: silverChestPlacement.position,
+        itemId: 'silver_key'
+      },
+      {
+        id: 'gold_key_chest',
+        roomId: goldChestPlacement.room.id,
+        position: goldChestPlacement.position,
+        itemId: 'gold_key'
+      }
     ],
     npcPosition,
     exteriorGroundCenter: new THREE.Vector3(ENTRANCE_X, 0, -17),
@@ -1167,34 +1214,87 @@ function mirrorDoorOnZ(door: DungeonDoorDefinition): DungeonDoorDefinition {
   };
 }
 
-function getRoomChestPosition(room: DungeonRoomNode): THREE.Vector3 {
-  return getRoomChestPositionWithClearance(room, []);
-}
-
-function getRoomChestPositionWithClearance(
+function getRoomChestPositionWithClearances(
   room: DungeonRoomNode,
-  forbiddenPoints: THREE.Vector3[],
-  minDistance = 0
-): THREE.Vector3 {
+  clearancePoints: ClearancePoint[]
+): THREE.Vector3 | null {
   const bounds = getRoomWorldBounds(room);
-  const margin = 1;
+  const minX = bounds.xMin + CHEST_WALL_MARGIN;
+  const maxX = bounds.xMax - CHEST_WALL_MARGIN;
+  const minZ = bounds.zMin + CHEST_WALL_MARGIN;
+  const maxZ = bounds.zMax - CHEST_WALL_MARGIN;
 
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    const candidate = new THREE.Vector3(
-      randomBetween(bounds.xMin + margin, bounds.xMax - margin),
-      0,
-      randomBetween(bounds.zMin + margin, bounds.zMax - margin)
-    );
-
-    const tooClose = forbiddenPoints.some((point) => candidate.distanceTo(point) < minDistance);
-    if (tooClose) {
-      continue;
-    }
-
-    return candidate;
+  if (minX > maxX || minZ > maxZ) {
+    return null;
   }
 
-  return new THREE.Vector3(bounds.xMin + margin, 0, bounds.zMin + margin);
+  for (let attempt = 0; attempt < CHEST_POSITION_ATTEMPTS; attempt += 1) {
+    const candidate = new THREE.Vector3(
+      randomBetween(minX, maxX),
+      0,
+      randomBetween(minZ, maxZ)
+    );
+
+    if (isChestPositionClear(candidate, clearancePoints)) {
+      return candidate;
+    }
+  }
+
+  for (let z = minZ; z <= maxZ + 0.0001; z += CHEST_POSITION_GRID_STEP) {
+    for (let x = minX; x <= maxX + 0.0001; x += CHEST_POSITION_GRID_STEP) {
+      const candidate = new THREE.Vector3(Math.min(x, maxX), 0, Math.min(z, maxZ));
+      if (isChestPositionClear(candidate, clearancePoints)) {
+        return candidate;
+      }
+    }
+  }
+
+  return null;
+}
+
+function isChestPositionClear(candidate: THREE.Vector3, clearancePoints: ClearancePoint[]): boolean {
+  return clearancePoints.every((point) => candidate.distanceTo(point.position) >= point.minDistance);
+}
+
+function getRoomDoorClearancePoints(
+  room: DungeonRoomNode,
+  roomDoorCenters: Map<string, THREE.Vector3[]>
+): ClearancePoint[] {
+  const doorCenters = roomDoorCenters.get(room.id) ?? [];
+  return doorCenters.map((position) => ({
+    position,
+    minDistance: CHEST_DOOR_CLEARANCE
+  }));
+}
+
+function pickChestPlacementWithinZone(
+  graph: DungeonGraph,
+  roomById: Map<string, DungeonRoomNode>,
+  zoneId: Exclude<DungeonZoneId, 'spawn' | 'boss'>,
+  roomDoorCenters: Map<string, THREE.Vector3[]>,
+  extraClearancePoints: ClearancePoint[],
+  errorMessage: string
+): { room: DungeonRoomNode; position: THREE.Vector3 } {
+  const candidates = graph.rooms
+    .map((room) => roomById.get(room.id))
+    .filter((room): room is DungeonRoomNode => Boolean(room))
+    .filter((room) => room.zoneId === zoneId);
+
+  if (candidates.length === 0) {
+    throw new Error(errorMessage);
+  }
+
+  for (const room of shuffleArray(candidates)) {
+    const position = getRoomChestPositionWithClearances(room, [
+      ...getRoomDoorClearancePoints(room, roomDoorCenters),
+      ...extraClearancePoints
+    ]);
+    if (position) {
+      return { room, position };
+    }
+  }
+
+  throw new Error(errorMessage);
 }
 
 function getCorridorRect(fromRoom: DungeonRoomNode, toRoom: DungeonRoomNode, corridor: DungeonCorridorEdge): Rect {
@@ -1388,36 +1488,6 @@ function getRequiredDoor(doors: DungeonDoorDefinition[], itemId: string): Dungeo
   return door;
 }
 
-
-function pickBronzeChestRoom(graph: DungeonGraph, roomById: Map<string, DungeonRoomNode>): DungeonRoomNode {
-  return pickChestRoomWithinZone(graph, roomById, BRONZE_ZONE_ID, 'Unable to place bronze key chest in the bronze zone.');
-}
-
-function pickSilverChestRoom(graph: DungeonGraph, roomById: Map<string, DungeonRoomNode>): DungeonRoomNode {
-  return pickChestRoomWithinZone(graph, roomById, SILVER_ZONE_ID, 'Unable to place silver key chest in the silver zone.');
-}
-
-function pickGoldChestRoom(graph: DungeonGraph, roomById: Map<string, DungeonRoomNode>): DungeonRoomNode {
-  return pickChestRoomWithinZone(graph, roomById, GOLD_ZONE_ID, 'Unable to place gold key chest in the gold zone.');
-}
-
-function pickChestRoomWithinZone(
-  graph: DungeonGraph,
-  roomById: Map<string, DungeonRoomNode>,
-  zoneId: Exclude<DungeonZoneId, 'spawn' | 'boss'>,
-  errorMessage: string
-): DungeonRoomNode {
-  const candidates = graph.rooms
-    .map((room) => roomById.get(room.id))
-    .filter((room): room is DungeonRoomNode => Boolean(room))
-    .filter((room) => room.zoneId === zoneId);
-
-  if (candidates.length === 0) {
-    throw new Error(errorMessage);
-  }
-
-  return candidates[randomInt(0, candidates.length - 1)];
-}
 
 function createCorridorTransitions(
   corridor: DungeonCorridorEdge,
