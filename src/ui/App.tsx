@@ -6,6 +6,7 @@ import { HealthOrb } from './hud/HealthOrb';
 import { InteractionPrompt } from './hud/InteractionPrompt';
 import { Journal } from './hud/Journal';
 import { ActionBar } from './hud/ActionBar';
+import { PauseOverlay } from './hud/PauseOverlay';
 import { InventoryPanel } from './inventory/InventoryPanel';
 
 export function App(): JSX.Element {
@@ -14,6 +15,7 @@ export function App(): JSX.Element {
       <CompassRose />
       <Crosshair />
       <InteractionPrompt />
+      <PauseOverlay />
       <InventoryPanel />
       <HealthOrb />
       <Journal />

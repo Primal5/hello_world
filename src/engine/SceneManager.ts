@@ -6,8 +6,9 @@ export class SceneManager {
 
   constructor() {
     const skyColor = new THREE.Color('#7aa2cc');
+    const fogColor = new THREE.Color('#000000');
     this.scene.background = skyColor;
-    this.scene.fog = new THREE.FogExp2(skyColor, 0.018);
+    this.scene.fog = new THREE.FogExp2(fogColor, 0.072);
     this.setupLights();
   }
 

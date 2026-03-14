@@ -5,6 +5,7 @@ export class PlayerInventory {
     if (this.itemIds.includes(itemId)) {
       return false;
     }
+
     this.itemIds.push(itemId);
     return true;
   }

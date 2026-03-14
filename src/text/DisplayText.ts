@@ -4,14 +4,25 @@ export const DISPLAY_TEXT = {
       ariaLabel: 'Inventaire du joueur',
       equipment: 'Équipement',
       title: 'Inventaire',
+      closeButtonLabel: "Fermer l'inventaire",
+      currency: {
+        goldShort: 'PO',
+        silverShort: 'PA',
+        copperShort: 'PC'
+      },
       emptyBag: 'Votre sac est vide.',
       emptyHint: "Trouvez les coffres pour récupérer les clés de progression.",
-      closeHint: 'Appuyez sur i pour fermer.',
+      closeHint: 'Appuyez sur I ou Tab pour fermer.',
       itemCount: (count: number) => `${count} objet${count > 1 ? 's' : ''}`
+    },
+    pause: {
+      label: 'En pause',
+      toggleKeyCodes: ['KeyP', 'Pause']
     },
     prompt: {
       interact: (label: string) => `Appuyez sur E pour ${label}`,
-      openInventory: "Appuyez sur I pour ouvrir l'inventaire.",
+      openInventory: "Appuyez sur I ou Tab pour ouvrir l'inventaire.",
+      inventoryKeyCodes: ['KeyI', 'Tab'],
       acknowledgeKeyCode: 'Enter',
       acknowledgeLabel: 'Compris !'
     },

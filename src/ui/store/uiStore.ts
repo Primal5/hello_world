@@ -39,12 +39,15 @@ export type JournalEntryInput = string | JournalEntry;
 
 interface UiState {
   isInventoryOpen: boolean;
+  isPaused: boolean;
+  pauseLabel: string | null;
   interactionPrompt: string | null;
   eventMessages: UiEventMessage[];
   journalEntries: JournalEntry[];
   dialogueBox: DialogueBoxState | null;
   toggleInventory: () => void;
   closeInventory: () => void;
+  setPaused: (paused: boolean, label?: string | null) => void;
   setInteractionPrompt: (prompt: string | null) => void;
   pushEventMessage: (entry: EventMessageInput) => number;
   removeEventMessage: (id: number) => void;
@@ -65,12 +68,15 @@ function toEventMessage(entry: EventMessageInput, id: number): UiEventMessage {
 
 export const useUiStore = create<UiState>((set) => ({
   isInventoryOpen: false,
+  isPaused: false,
+  pauseLabel: null,
   interactionPrompt: null,
   eventMessages: [],
   journalEntries: [toJournalEntry(DISPLAY_TEXT.ui.log.welcome)],
   dialogueBox: null,
   toggleInventory: () => set((state) => ({ isInventoryOpen: !state.isInventoryOpen })),
   closeInventory: () => set({ isInventoryOpen: false }),
+  setPaused: (isPaused, pauseLabel = null) => set({ isPaused, pauseLabel }),
   setInteractionPrompt: (interactionPrompt) => set({ interactionPrompt }),
   pushEventMessage: (entry) => {
     const id = nextEventId++;

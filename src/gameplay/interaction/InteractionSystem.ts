@@ -46,8 +46,9 @@ export class InteractionSystem {
   setFocused(interactable: Interactable | null): void {
     this.focus = interactable;
 
-    const { setInteractionPrompt } = useUiStore.getState();
-    if (!interactable || useUiStore.getState().dialogueBox) {
+    const uiState = useUiStore.getState();
+    const { setInteractionPrompt } = uiState;
+    if (!interactable || uiState.dialogueBox || uiState.isInventoryOpen || uiState.isPaused) {
       setInteractionPrompt(null);
       return;
     }
@@ -58,6 +59,11 @@ export class InteractionSystem {
 
   tryInteract(): void {
     if (useUiStore.getState().dialogueBox) {
+      return;
+    }
+
+    const uiState = useUiStore.getState();
+    if (uiState.isInventoryOpen || uiState.isPaused) {
       return;
     }
 

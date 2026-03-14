@@ -7,7 +7,7 @@ Structure recommandée:
 ```text
 public/assets/models/
   chest.glb
-  door.glb
+  Wooden_Door.glb
   npc.glb
   meshy/
     robot-guide/

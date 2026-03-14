@@ -9,13 +9,16 @@ import { CollisionWorld } from './CollisionWorld';
 import {
   DUNGEON_CONFIG,
   generateDungeonLayout,
+  getMirroredRoomWorldBounds,
   type DungeonDoorDefinition,
+  type DungeonLayout,
   type DungeonWallSegment
 } from './DungeonGenerator';
 import { MODEL_REGISTRY, type ModelDefinition, type ModelKey } from './ModelRegistry';
 import { DISPLAY_TEXT } from '../text/DisplayText';
 import { ItemVisualsService } from '../gameplay/items/ItemVisuals';
 import type { LoadedModel } from './AssetLoader';
+import { createGroundMaterialSet } from './ProceduralGround';
 
 interface WallEndBehavior {
   trimStart: boolean;
@@ -62,11 +65,7 @@ export class LevelLoader {
     const layout = generateDungeonLayout();
     this.collisionWorld.setCeiling(DUNGEON_CONFIG.ceilingY);
 
-    this.addDungeonShell(
-      layout.floorCenter,
-      layout.ceilingCenter,
-      layout.floorSize
-    );
+    await this.addDungeonShell(layout);
     this.addWalls(layout.wallSegments);
 
     const interactables: Interactable[] = [];
@@ -232,19 +231,78 @@ export class LevelLoader {
 
     return interactables;
   }
-  private addDungeonShell(
-    floorCenter: THREE.Vector3,
-    ceilingCenter: THREE.Vector3,
-    size: THREE.Vector2
-  ): void {
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(size.x, size.y),
-      new THREE.MeshStandardMaterial({ color: '#5b5f4b' })
+  private async addDungeonShell(layout: DungeonLayout): Promise<void> {
+    const { floorCenter, ceilingCenter, floorSize: size } = layout;
+    const worldOffset = new THREE.Vector2(
+      floorCenter.x - size.x / 2,
+      floorCenter.z - size.y / 2
     );
+    const groundMaterials = await createGroundMaterialSet(
+      size,
+      this.assetLoader.getMaxAnisotropy(),
+      {
+        albedoPath: '/assets/textures/floors/pierre/Pierre_Dure.jpg',
+        worldOffset
+      }
+    );
+
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(size.x, size.y), groundMaterials.baseMaterial);
     floor.rotation.x = -Math.PI / 2;
     floor.position.copy(floorCenter);
     floor.receiveShadow = ENABLE_SHADOWS;
     this.scene.add(floor);
+
+    const floorVariation = new THREE.Mesh(
+      new THREE.PlaneGeometry(size.x, size.y),
+      groundMaterials.variationMaterial
+    );
+    floorVariation.rotation.x = -Math.PI / 2;
+    floorVariation.position.copy(floorCenter);
+    floorVariation.position.y += 0.01;
+    floorVariation.receiveShadow = ENABLE_SHADOWS;
+    floorVariation.renderOrder = 1;
+    this.scene.add(floorVariation);
+
+    const spawnRoom = layout.graph.rooms.find((room) => room.id === 'spawn');
+    if (spawnRoom) {
+      const spawnBounds = getMirroredRoomWorldBounds(spawnRoom);
+      const spawnSize = new THREE.Vector2(
+        spawnBounds.xMax - spawnBounds.xMin,
+        spawnBounds.zMax - spawnBounds.zMin
+      );
+      const spawnCenter = new THREE.Vector3(
+        (spawnBounds.xMin + spawnBounds.xMax) / 2,
+        floorCenter.y + 0.02,
+        (spawnBounds.zMin + spawnBounds.zMax) / 2
+      );
+      const spawnOffset = new THREE.Vector2(spawnBounds.xMin, spawnBounds.zMin);
+      const spawnMaterials = await createGroundMaterialSet(
+        spawnSize,
+        this.assetLoader.getMaxAnisotropy(),
+        { worldOffset: spawnOffset }
+      );
+
+      const spawnFloor = new THREE.Mesh(
+        new THREE.PlaneGeometry(spawnSize.x, spawnSize.y),
+        spawnMaterials.baseMaterial
+      );
+      spawnFloor.rotation.x = -Math.PI / 2;
+      spawnFloor.position.copy(spawnCenter);
+      spawnFloor.receiveShadow = ENABLE_SHADOWS;
+      spawnFloor.renderOrder = 2;
+      this.scene.add(spawnFloor);
+
+      const spawnVariation = new THREE.Mesh(
+        new THREE.PlaneGeometry(spawnSize.x, spawnSize.y),
+        spawnMaterials.variationMaterial
+      );
+      spawnVariation.rotation.x = -Math.PI / 2;
+      spawnVariation.position.copy(spawnCenter);
+      spawnVariation.position.y += 0.01;
+      spawnVariation.receiveShadow = ENABLE_SHADOWS;
+      spawnVariation.renderOrder = 3;
+      this.scene.add(spawnVariation);
+    }
 
     const ceiling = new THREE.Mesh(
       new THREE.PlaneGeometry(size.x, size.y),
@@ -471,61 +529,34 @@ export class LevelLoader {
     const faceZTexture = this.createRepeatedWallTexture(size.x, size.y);
 
     return [
-      new THREE.MeshStandardMaterial({ map: faceXTexture, color: '#b8b1a6' }),
-      new THREE.MeshStandardMaterial({ map: this.createRepeatedWallTexture(size.z, size.y), color: '#b8b1a6' }),
-      new THREE.MeshStandardMaterial({ map: faceYTexture, color: '#a49b90' }),
-      new THREE.MeshStandardMaterial({ map: this.createRepeatedWallTexture(size.x, size.z), color: '#8d857c' }),
-      new THREE.MeshStandardMaterial({ map: faceZTexture, color: '#b8b1a6' }),
-      new THREE.MeshStandardMaterial({ map: this.createRepeatedWallTexture(size.x, size.y), color: '#b8b1a6' })
+      new THREE.MeshStandardMaterial({ map: faceXTexture, color: '#ffffff' }),
+      new THREE.MeshStandardMaterial({ map: this.createRepeatedWallTexture(size.z, size.y), color: '#ffffff' }),
+      new THREE.MeshStandardMaterial({ map: faceYTexture, color: '#f2f2f2' }),
+      new THREE.MeshStandardMaterial({ map: this.createRepeatedWallTexture(size.x, size.z), color: '#ebebeb' }),
+      new THREE.MeshStandardMaterial({ map: faceZTexture, color: '#ffffff' }),
+      new THREE.MeshStandardMaterial({ map: this.createRepeatedWallTexture(size.x, size.y), color: '#ffffff' })
     ];
   }
 
-  private createRepeatedWallTexture(width: number, height: number): THREE.CanvasTexture {
+  private createRepeatedWallTexture(width: number, height: number): THREE.Texture {
     const texture = this.wallTexture.clone();
     texture.needsUpdate = true;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
     texture.repeat.set(Math.max(width / 2, 0.01), Math.max(height / 2, 0.01));
+    texture.anisotropy = this.assetLoader.getMaxAnisotropy();
     return texture;
   }
 
-  private createWallTexture(): THREE.CanvasTexture {
-    const canvas = document.createElement('canvas');
-    canvas.width = 128;
-    canvas.height = 128;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      const fallback = new THREE.CanvasTexture(canvas);
-      fallback.colorSpace = THREE.SRGBColorSpace;
-      return fallback;
-    }
-
-    const tileSize = 32;
-    const mortar = 2;
-    ctx.fillStyle = '#6f675f';
-    ctx.fillRect(0, 0, 128, 128);
-
-    for (let y = 0; y < 128; y += tileSize) {
-      for (let x = 0; x < 128; x += tileSize) {
-        const shade = ((x / tileSize) + (y / tileSize)) % 2 === 0 ? '#b8b0a5' : '#a79f94';
-        ctx.fillStyle = shade;
-        ctx.fillRect(x + mortar, y + mortar, tileSize - mortar * 2, tileSize - mortar * 2);
-
-        ctx.strokeStyle = '#8a8177';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(x + mortar, y + mortar, tileSize - mortar * 2, tileSize - mortar * 2);
-
-        ctx.fillStyle = 'rgba(255,255,255,0.08)';
-        ctx.fillRect(x + mortar + 2, y + mortar + 2, tileSize - 10, 4);
-      }
-    }
-
-    const texture = new THREE.CanvasTexture(canvas);
+  private createWallTexture(): THREE.Texture {
+    const texture = new THREE.TextureLoader().load('/assets/textures/walls/medieval/Sombre.jpg');
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
     texture.magFilter = THREE.LinearFilter;
     texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.anisotropy = this.assetLoader.getMaxAnisotropy();
+    texture.needsUpdate = true;
     return texture;
   }
 
@@ -543,7 +574,9 @@ export class LevelLoader {
     pivot.position.x = definition.width / 2;
     root.add(pivot);
 
-    const panel = await this.assetLoader.loadModel(MODEL_REGISTRY.door.path);
+    const modelDefinition = this.getDoorModelDefinition(definition);
+    const panel = await this.assetLoader.loadModel(modelDefinition.path);
+    this.applyModelMaterialStyle(panel, modelDefinition);
     this.enableShadows(panel);
 
     panel.scale.set(
@@ -565,6 +598,22 @@ export class LevelLoader {
       ? new THREE.Vector3(definition.depth, definition.height, definition.width)
       : new THREE.Vector3(definition.width, definition.height, definition.depth);
     return { root, pivot, obstacleSize };
+  }
+
+  private getDoorModelDefinition(definition: DungeonDoorDefinition): ModelDefinition {
+    if (definition.requiredItemId === 'bronze_key') {
+      return MODEL_REGISTRY.Bronze_Door;
+    }
+
+    if (definition.requiredItemId === 'silver_key') {
+      return MODEL_REGISTRY.Silver_Door;
+    }
+
+    if (definition.requiredItemId === 'gold_key') {
+      return MODEL_REGISTRY.Gold_Door;
+    }
+
+    return MODEL_REGISTRY.Wooden_Door;
   }
 
   private attachHingedModel(
@@ -712,6 +761,53 @@ export class LevelLoader {
     if (definition.offset) {
       model.position.add(new THREE.Vector3(...definition.offset));
     }
+  }
+
+  private applyModelMaterialStyle(model: THREE.Object3D, definition: ModelDefinition): void {
+    const style = definition.materialStyle;
+    if (!style) {
+      return;
+    }
+
+    model.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) {
+        return;
+      }
+
+      if (Array.isArray(mesh.material)) {
+        mesh.material = mesh.material.map((material) => this.createStyledMaterial(material, style));
+        return;
+      }
+
+      mesh.material = this.createStyledMaterial(mesh.material, style);
+    });
+  }
+
+  private createStyledMaterial(
+    material: THREE.Material,
+    style: NonNullable<ModelDefinition['materialStyle']>
+  ): THREE.Material {
+    const styledMaterial = material.clone() as THREE.MeshStandardMaterial;
+
+    if (style.color) {
+      styledMaterial.color?.set(style.color);
+    }
+
+    if (style.emissive) {
+      styledMaterial.emissive?.set(style.emissive);
+    }
+
+    if (typeof style.metalness === 'number') {
+      styledMaterial.metalness = style.metalness;
+    }
+
+    if (typeof style.roughness === 'number') {
+      styledMaterial.roughness = style.roughness;
+    }
+
+    styledMaterial.needsUpdate = true;
+    return styledMaterial;
   }
 
   private applyTypeStyle(mesh: THREE.Mesh, type: ModelKey): void {

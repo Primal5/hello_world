@@ -12,8 +12,9 @@
     "check:spawn-npc-placement": "node .\\scripts\\check-spawn-npc-placement.mjs",
     "check:wall-joins": "powershell -ExecutionPolicy Bypass -File .\\scripts\\check-wall-joins.ps1",
     "check:wall-overlaps": "node .\\scripts\\check-wall-overlaps.mjs",
+    "check:door-clearance": "node .\\scripts\\check-door-clearance.mjs",
     "check:ui-messaging": "node .\\scripts\\check-ui-messaging.mjs",
-    "build": "npm run check:text && npm run check:utf8 && npm run check:item-ui-colors && npm run check:spawn-npc-placement && npm run check:wall-joins && npm run check:wall-overlaps && npm run check:ui-messaging && tsc -b && vite build",
+    "build": "npm run check:text && npm run check:utf8 && npm run check:item-ui-colors && npm run check:spawn-npc-placement && npm run check:wall-joins && npm run check:wall-overlaps && npm run check:door-clearance && npm run check:ui-messaging && tsc -b && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -16,6 +16,10 @@ export class AssetLoader {
 
   constructor(private readonly maxAnisotropy = 1) {}
 
+  getMaxAnisotropy(): number {
+    return this.maxAnisotropy;
+  }
+
   async loadModel(path: string): Promise<THREE.Object3D> {
     const asset = await this.loadModelAsset(path);
     return asset.scene;

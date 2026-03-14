@@ -112,7 +112,8 @@ export class FirstPersonController {
   }
 
   private readonly onCanvasClick = (): void => {
-    if (useUiStore.getState().dialogueBox) {
+    const uiState = useUiStore.getState();
+    if (uiState.dialogueBox || uiState.isInventoryOpen || uiState.isPaused) {
       return;
     }
 

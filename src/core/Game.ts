@@ -22,6 +22,11 @@ import {
 import { AssetLoader } from '../engine/AssetLoader';
 import { DUNGEON_CONFIG } from '../engine/DungeonGenerator';
 import { DISPLAY_TEXT } from '../text/DisplayText';
+import { addInventoryCloseRequestListener, removeInventoryCloseRequestListener } from '../ui/inventory/inventoryEvents';
+import { PauseController } from './PauseController';
+
+const HEALTH_REGEN_AMOUNT = 1;
+const HEALTH_REGEN_INTERVAL_SECONDS = 2;
 
 export class Game {
   private readonly renderer: Renderer;
@@ -30,12 +35,14 @@ export class Game {
   private readonly player = new Player(DUNGEON_CONFIG.startPosition);
   private readonly collisionWorld = new CollisionWorld();
   private readonly loop: GameLoop;
+  private readonly pauseController = new PauseController();
   private readonly raycastInteractor = new RaycastInteractor();
   private readonly eventTimers = new Map<number, number>();
   private controller: FirstPersonController;
   private interactionSystem?: InteractionSystem;
   private levelLoader?: LevelLoader;
   private northYaw = 0;
+  private healthRegenElapsed = 0;
 
   constructor(private readonly container: HTMLElement) {
     this.renderer = new Renderer(container);
@@ -83,6 +90,7 @@ export class Game {
         onConfirm?: () => void,
         highlights?: JournalHighlight[]
       ) => {
+        this.input.clear();
         this.controller.exitPointerLock();
         useUiStore.getState().openDialogue({
           speaker,
@@ -93,7 +101,8 @@ export class Game {
           onConfirm: () => {
             onConfirm?.();
             queueMicrotask(() => {
-              if (!useUiStore.getState().dialogueBox) {
+              const uiState = useUiStore.getState();
+              if (!uiState.dialogueBox && !uiState.isInventoryOpen) {
                 this.controller.requestPointerLock();
               }
             });
@@ -106,6 +115,7 @@ export class Game {
         choices: DialogueChoice[],
         highlights?: JournalHighlight[]
       ) => {
+        this.input.clear();
         this.controller.exitPointerLock();
         useUiStore.getState().openDialogue({
           speaker,
@@ -117,7 +127,8 @@ export class Game {
             onSelect: () => {
               choice.onSelect();
               queueMicrotask(() => {
-                if (!useUiStore.getState().dialogueBox) {
+                const uiState = useUiStore.getState();
+                if (!uiState.dialogueBox && !uiState.isInventoryOpen) {
                   this.controller.requestPointerLock();
                 }
               });
@@ -131,7 +142,7 @@ export class Game {
     this.interactionSystem = new InteractionSystem(interactables, context);
 
     useGameStore.getState().setInventory(this.player.inventory.getAll());
-    useGameStore.getState().setMaxHealth(this.player.stats.health);
+    useGameStore.getState().setMaxHealth(this.player.stats.maxHealth);
     useGameStore.getState().setHealth(this.player.stats.health);
     this.northYaw = this.world.camera.rotation.y;
     useGameStore.getState().setCompassHeading(0);
@@ -139,6 +150,7 @@ export class Game {
 
     window.addEventListener('resize', this.onResize);
     window.addEventListener('keydown', this.onKeyDown);
+    addInventoryCloseRequestListener(this.onInventoryCloseRequested);
     this.player.isGrounded = true;
     this.loop.start();
   }
@@ -154,19 +166,31 @@ export class Game {
     this.eventTimers.clear();
     window.removeEventListener('resize', this.onResize);
     window.removeEventListener('keydown', this.onKeyDown);
+    removeInventoryCloseRequestListener(this.onInventoryCloseRequested);
   }
 
   private update(delta: number): void {
-    const dialogueBox = useUiStore.getState().dialogueBox;
+    const uiState = useUiStore.getState();
+    const dialogueBox = uiState.dialogueBox;
     const isDialogueOpen = Boolean(dialogueBox);
+    const isInventoryOpen = uiState.isInventoryOpen;
+    const isUiBlocking = isDialogueOpen || isInventoryOpen;
+    const isGamePaused = uiState.isPaused;
 
-    if (!isDialogueOpen) {
+    if (!isUiBlocking && !isGamePaused) {
       this.controller.update(delta);
+    } else {
+      this.interactionSystem?.setFocused(null);
     }
 
+    if (isGamePaused) {
+      return;
+    }
+
+    this.regenerateHealth(delta);
     this.levelLoader?.update(delta);
 
-    if (this.interactionSystem && !isDialogueOpen) {
+    if (this.interactionSystem && !isUiBlocking) {
       const focused = this.raycastInteractor.pick(
         this.world.camera,
         this.world.scene,
@@ -185,6 +209,31 @@ export class Game {
     this.renderer.render(this.world.scene, this.world.camera);
   }
 
+  private regenerateHealth(delta: number): void {
+    const missingHealth = this.player.stats.maxHealth - this.player.stats.health;
+    if (missingHealth <= 0) {
+      this.healthRegenElapsed = 0;
+      return;
+    }
+
+    this.healthRegenElapsed += delta;
+    const restoredTicks = Math.min(
+      Math.floor(this.healthRegenElapsed / HEALTH_REGEN_INTERVAL_SECONDS),
+      Math.ceil(missingHealth / HEALTH_REGEN_AMOUNT)
+    );
+
+    if (restoredTicks <= 0) {
+      return;
+    }
+
+    this.healthRegenElapsed -= restoredTicks * HEALTH_REGEN_INTERVAL_SECONDS;
+    this.player.stats.health = Math.min(
+      this.player.stats.health + restoredTicks * HEALTH_REGEN_AMOUNT,
+      this.player.stats.maxHealth
+    );
+    useGameStore.getState().setHealth(this.player.stats.health);
+  }
+
   private onResize = (): void => {
     const width = this.container.clientWidth;
     const height = this.container.clientHeight;
@@ -197,7 +246,8 @@ export class Game {
       return;
     }
 
-    const dialogueBox = useUiStore.getState().dialogueBox;
+    const uiState = useUiStore.getState();
+    const dialogueBox = uiState.dialogueBox;
     if (dialogueBox?.mode === 'acknowledgment' && event.code === DISPLAY_TEXT.ui.prompt.acknowledgeKeyCode) {
       event.preventDefault();
       dialogueBox.onConfirm?.();
@@ -206,19 +256,84 @@ export class Game {
     }
 
     if (event.code === 'KeyE') {
+      if (uiState.isInventoryOpen || uiState.isPaused) {
+        return;
+      }
+
       this.interactionSystem?.tryInteract();
       return;
     }
 
-    if (event.code === 'KeyI') {
+    if (DISPLAY_TEXT.ui.pause.toggleKeyCodes.some((code) => code === event.code)) {
       event.preventDefault();
+      if (dialogueBox || uiState.isInventoryOpen) {
+        return;
+      }
+
+      this.input.clear();
+      if (this.pauseController.hasReason('manual')) {
+        this.pauseController.deactivate('manual');
+        this.controller.requestPointerLock();
+        return;
+      }
+
+      this.controller.exitPointerLock();
+      useUiStore.getState().setInteractionPrompt(null);
+      this.pauseController.activate('manual');
+      return;
+    }
+
+    if (DISPLAY_TEXT.ui.prompt.inventoryKeyCodes.some((code) => code === event.code)) {
+      event.preventDefault();
+      if (dialogueBox) {
+        return;
+      }
+
+      if (this.pauseController.hasReason('manual')) {
+        return;
+      }
+
+      if (uiState.isInventoryOpen) {
+        this.input.clear();
+        useUiStore.getState().closeInventory();
+        this.pauseController.deactivate('inventory');
+        if (!useUiStore.getState().dialogueBox && !this.pauseController.isPaused()) {
+          this.controller.requestPointerLock();
+        }
+        return;
+      }
+
+      this.input.clear();
+      this.controller.exitPointerLock();
+      useUiStore.getState().setInteractionPrompt(null);
+      this.pauseController.activate('inventory');
       useUiStore.getState().toggleInventory();
       return;
     }
 
     if (event.code === 'Escape') {
+      this.input.clear();
+      if (uiState.isInventoryOpen) {
+        this.pauseController.deactivate('inventory');
+      }
       useUiStore.getState().closeInventory();
       useUiStore.getState().closeDialogue();
+      if (!this.pauseController.isPaused()) {
+        this.controller.requestPointerLock();
+      }
+    }
+  };
+
+  private onInventoryCloseRequested = (): void => {
+    const uiState = useUiStore.getState();
+    if (!uiState.isInventoryOpen) {
+      return;
+    }
+
+    this.input.clear();
+    useUiStore.getState().closeInventory();
+    this.pauseController.deactivate('inventory');
+    if (!useUiStore.getState().dialogueBox && !this.pauseController.isPaused()) {
       this.controller.requestPointerLock();
     }
   };

@@ -3,22 +3,66 @@ import { ItemVisualsService } from '../../gameplay/items/ItemVisuals';
 import { DISPLAY_TEXT } from '../../text/DisplayText';
 import { useGameStore } from '../store/gameStore';
 import { useUiStore } from '../store/uiStore';
+import { InventoryItemIconContent } from './InventoryItemIconContent';
+import { requestInventoryClose } from './inventoryEvents';
 
 export function InventoryPanel(): JSX.Element | null {
   const isOpen = useUiStore((state) => state.isInventoryOpen);
   const itemIds = useGameStore((state) => state.inventory);
+  const currency = useGameStore((state) => state.currency);
 
   if (!isOpen) return null;
 
   const items = itemIds
     .map((id) => itemData.find((item) => item.id === id))
     .filter((item): item is (typeof itemData)[number] => Boolean(item));
+  const showGold = currency.gold > 0;
+  const showSilver = showGold || currency.silver > 0;
+  const currencyEntries = [
+    ...(showGold
+      ? [{
+          key: 'gold',
+          amount: currency.gold,
+          className: ['inventory-panel__coin', 'inventory-panel__coin--gold'].join(' ')
+        }]
+      : []),
+    ...(showSilver
+      ? [{
+          key: 'silver',
+          amount: currency.silver,
+          className: ['inventory-panel__coin', 'inventory-panel__coin--silver'].join(' ')
+        }]
+      : []),
+    {
+      key: 'copper',
+      amount: currency.copper,
+      className: ['inventory-panel__coin', 'inventory-panel__coin--copper'].join(' ')
+    }
+  ];
 
   return (
     <aside className="inventory-panel" aria-label={DISPLAY_TEXT.ui.inventory.ariaLabel}>
       <div className="inventory-panel__header">
         <h3>{DISPLAY_TEXT.ui.inventory.title}</h3>
-        <span className="inventory-panel__count">{DISPLAY_TEXT.ui.inventory.itemCount(items.length)}</span>
+        <div className="inventory-panel__header-actions">
+          <div className="inventory-panel__currency" aria-hidden="true">
+            {currencyEntries.map((entry) => (
+              <span className="inventory-panel__coin-entry" key={entry.key}>
+                <span className="inventory-panel__coin-value">{entry.amount}</span>
+                <span className={entry.className} />
+              </span>
+            ))}
+          </div>
+          <span className="inventory-panel__count">{DISPLAY_TEXT.ui.inventory.itemCount(items.length)}</span>
+          <button
+            aria-label={DISPLAY_TEXT.ui.inventory.closeButtonLabel}
+            className="inventory-panel__close"
+            onClick={requestInventoryClose}
+            type="button"
+          >
+            ×
+          </button>
+        </div>
       </div>
 
       {items.length === 0 ? (
@@ -37,9 +81,8 @@ export function InventoryPanel(): JSX.Element | null {
                   className={["inventory-panel__icon", "inventory-panel__icon--rarity"].join(' ')}
                   style={ItemVisualsService.toCssVariables(rarityTheme)}
                   aria-hidden="true"
-                  title={rarityTheme.label}
                 >
-                  {item.id.endsWith('_key') ? 'K' : '\u2022'}
+                  <InventoryItemIconContent itemId={item.id} />
                 </div>
                 <div className="inventory-panel__body">
                   <div className="inventory-panel__meta">

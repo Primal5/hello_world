@@ -5,11 +5,14 @@ const SIZE = 124;
 const STROKE = 12;
 const RADIUS = (SIZE - STROKE) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+const HEALTH_ORB_CLASS = 'health-orb';
+const HEALTH_ORB_WARNING_CLASS = 'health-orb--warning';
+const HEALTH_ORB_CRITICAL_CLASS = 'health-orb--critical';
 
 function getHealthColor(percentage: number): string {
-  if (percentage > 75) return '#33d17a';
-  if (percentage > 50) return '#ff9f1c';
-  if (percentage > 25) return '#ffd60a';
+  if (percentage >= 75) return '#33d17a';
+  if (percentage >= 50) return '#ff9f1c';
+  if (percentage >= 25) return '#ffd60a';
   return '#e63946';
 }
 
@@ -21,9 +24,15 @@ export function HealthOrb(): JSX.Element {
   const percentage = (clampedHealth / safeMaxHealth) * 100;
   const dashOffset = CIRCUMFERENCE * (1 - percentage / 100);
   const color = getHealthColor(percentage);
+  let orbClassName = HEALTH_ORB_CLASS;
+  if (percentage < 25) {
+    orbClassName = `${HEALTH_ORB_CLASS} ${HEALTH_ORB_CRITICAL_CLASS}`;
+  } else if (percentage < 50) {
+    orbClassName = `${HEALTH_ORB_CLASS} ${HEALTH_ORB_WARNING_CLASS}`;
+  }
 
   return (
-    <div className="health-orb" aria-label={DISPLAY_TEXT.ui.hud.healthAria(clampedHealth, safeMaxHealth)}>
+    <div className={orbClassName} aria-label={DISPLAY_TEXT.ui.hud.healthAria(clampedHealth, safeMaxHealth)}>
       <svg className="health-orb__svg" viewBox={`0 0 ${SIZE} ${SIZE}`} role="img">
         <circle
           className="health-orb__track"

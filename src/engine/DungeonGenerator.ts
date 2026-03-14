@@ -72,6 +72,19 @@ interface CorridorTransition {
   doorName?: string;
 }
 
+interface DoorTransitionPlacement {
+  index: number;
+  transition: CorridorTransition;
+}
+
+interface DoorOpening {
+  placement: DoorTransitionPlacement;
+  axis: 'x' | 'z';
+  line: number;
+  start: number;
+  end: number;
+}
+
 export interface DungeonRoomNode {
   id: string;
   type: DungeonRoomType;
@@ -229,6 +242,20 @@ export const DUNGEON_CONFIG = {
 } as const;
 
 export function generateDungeonLayout(): DungeonLayout {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    try {
+      return tryGenerateDungeonLayout();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  const reason = lastError instanceof Error ? ': ' + lastError.message : '';
+  throw new Error('Unable to generate dungeon layout' + reason + '.');
+}
+
+function tryGenerateDungeonLayout(): DungeonLayout {
   const graph = createDungeonGraph();
   const roomById = new Map(graph.rooms.map((room) => [room.id, room]));
   const occupied = createOccupancyGrid();
@@ -253,6 +280,7 @@ export function generateDungeonLayout(): DungeonLayout {
   const wallSegments = buildWallSegments(horizontalEdges, verticalEdges);
 
   const doors: DungeonDoorDefinition[] = [];
+  const doorPlacements: DoorTransitionPlacement[] = [];
   let interiorDoorIndex = 0;
   for (const corridor of graph.corridors) {
     const fromRoom = roomById.get(corridor.from);
@@ -263,12 +291,13 @@ export function generateDungeonLayout(): DungeonLayout {
 
     const transitions = createCorridorTransitions(corridor, fromRoom, toRoom);
     for (const transition of transitions) {
-      addInteriorDoorSideWalls(wallSegments, transition, interiorDoorIndex);
+      doorPlacements.push({ transition, index: interiorDoorIndex });
       doors.push(createInteriorDoor(transition, interiorDoorIndex));
       interiorDoorIndex += 1;
     }
   }
 
+  addDoorFrameSegments(wallSegments, doorPlacements);
   addDoorLintels(wallSegments, doors);
   const normalizedWallSegments = removeDuplicateWallSegments(wallSegments);
 
@@ -1015,6 +1044,16 @@ function getRoomWorldBounds(room: DungeonRoomNode): RoomWorldBounds {
   return getRoomRect(room.bounds);
 }
 
+export function getMirroredRoomWorldBounds(room: DungeonRoomNode): RoomWorldBounds {
+  const bounds = getRoomWorldBounds(room);
+  return {
+    xMin: bounds.xMin,
+    xMax: bounds.xMax,
+    zMin: -bounds.zMax,
+    zMax: -bounds.zMin
+  };
+}
+
 function isInsideRoomBounds(position: THREE.Vector3, bounds: RoomWorldBounds, margin: number): boolean {
   return position.x >= bounds.xMin + margin
     && position.x <= bounds.xMax - margin
@@ -1402,7 +1441,7 @@ function createCorridorTransitions(
     if (isSpawnEntrance) {
       const spawnRoom = lowerRoom.type === 'spawn' ? lowerRoom : upperRoom;
       const spawnBounds = spawnRoom.id === lowerRoom.id ? lowerBounds : upperBounds;
-      return [
+      return validateDoorTransitions([
         {
           roomId: spawnRoom.id,
           center: new THREE.Vector3(xCenter, 0, spawnBounds.zMax),
@@ -1416,14 +1455,14 @@ function createCorridorTransitions(
           requiredItemId: corridorRequiredItemId,
           doorName: corridorDoorName
         }
-      ];
+      ], corridor.id);
     }
 
     if (corridorRequiredItemId) {
       const anchorZoneId = getLockedDoorAnchorZoneId(corridor.id);
       const anchorRoom = lowerRoom.zoneId === anchorZoneId ? lowerRoom : upperRoom;
       const anchorBounds = anchorRoom.id === lowerRoom.id ? lowerBounds : upperBounds;
-      return [
+      return validateDoorTransitions([
         {
           roomId: anchorRoom.id,
           center: new THREE.Vector3(
@@ -1441,10 +1480,10 @@ function createCorridorTransitions(
           requiredItemId: corridorRequiredItemId,
           doorName: corridorDoorName
         }
-      ];
+      ], corridor.id);
     }
 
-    return [
+    return validateDoorTransitions([
       {
         roomId: lowerRoom.id,
         center: new THREE.Vector3(xCenter, 0, lowerBounds.zMax),
@@ -1471,7 +1510,7 @@ function createCorridorTransitions(
         requiredItemId: undefined,
         doorName: corridorDoorName
       }
-    ];
+    ], corridor.id);
   }
 
   const zCenter = (corridorRect.zMin + corridorRect.zMax) / 2;
@@ -1484,7 +1523,7 @@ function createCorridorTransitions(
     const anchorZoneId = getLockedDoorAnchorZoneId(corridor.id);
     const anchorRoom = leftRoom.zoneId === anchorZoneId ? leftRoom : rightRoom;
     const anchorBounds = anchorRoom.id === leftRoom.id ? leftBounds : rightBounds;
-    return [
+    return validateDoorTransitions([
       {
         roomId: anchorRoom.id,
         center: new THREE.Vector3(
@@ -1502,10 +1541,10 @@ function createCorridorTransitions(
         requiredItemId: corridorRequiredItemId,
         doorName: corridorDoorName
       }
-    ];
+    ], corridor.id);
   }
 
-  return [
+  return validateDoorTransitions([
     {
       roomId: leftRoom.id,
       center: new THREE.Vector3(leftBounds.xMax, 0, zCenter),
@@ -1532,7 +1571,22 @@ function createCorridorTransitions(
       requiredItemId: undefined,
       doorName: corridorDoorName
     }
-  ];
+  ], corridor.id);
+}
+
+function validateDoorTransitions(
+  transitions: CorridorTransition[],
+  corridorId: string
+): CorridorTransition[] {
+  for (const transition of transitions) {
+    const usableStart = Math.max(transition.openingStart, transition.wallStart);
+    const usableEnd = Math.min(transition.openingEnd, transition.wallEnd);
+    if (usableEnd - usableStart < DOOR_WIDTH) {
+      throw new Error(`Door opening in ${corridorId} is too narrow.`);
+    }
+  }
+
+  return transitions;
 }
 
 function getCorridorRequiredItemId(corridorId: string): string | undefined {
@@ -1601,10 +1655,11 @@ function createInteriorDoor(transition: CorridorTransition, index: number): Dung
   const doorId = transition.requiredItemId
     ? `${transition.requiredItemId}_${transition.roomId}`
     : `interior_door_${index}`;
+  const { center } = getDoorOpeningRange(transition);
 
   return {
     id: doorId,
-    center: transition.center,
+    center,
     width: DOOR_WIDTH,
     height: DOOR_HEIGHT,
     depth: DOOR_DEPTH,
@@ -1619,46 +1674,114 @@ function createInteriorDoor(transition: CorridorTransition, index: number): Dung
   };
 }
 
-function addInteriorDoorSideWalls(
-  segments: DungeonWallSegment[],
-  transition: CorridorTransition,
-  index: number
-): void {
-  const openingCenter = (transition.openingStart + transition.openingEnd) / 2;
-  const doorStart = openingCenter - DOOR_WIDTH / 2;
-  const doorEnd = openingCenter + DOOR_WIDTH / 2;
+function getDoorOpeningRange(transition: CorridorTransition): {
+  center: THREE.Vector3;
+  start: number;
+  end: number;
+} {
+  const usableStart = Math.max(transition.openingStart, transition.wallStart);
+  const usableEnd = Math.min(transition.openingEnd, transition.wallEnd);
+  const openingCenter = (usableStart + usableEnd) / 2;
 
   if (Math.abs(Math.sin(transition.rotationY)) < 0.5) {
-    if (doorStart > transition.wallStart) {
-      replaceStructuralRangeWithFrame(
-        segments,
-        frameHorizontalWall(`interior_door_${index}_left`, transition.wallStart, doorStart, transition.center.z)
-      );
+    return {
+      center: new THREE.Vector3(openingCenter, transition.center.y, transition.center.z),
+      start: openingCenter - DOOR_WIDTH / 2,
+      end: openingCenter + DOOR_WIDTH / 2
+    };
+  }
+
+  return {
+    center: new THREE.Vector3(transition.center.x, transition.center.y, openingCenter),
+    start: openingCenter - DOOR_WIDTH / 2,
+    end: openingCenter + DOOR_WIDTH / 2
+  };
+}
+
+function addDoorFrameSegments(
+  segments: DungeonWallSegment[],
+  placements: DoorTransitionPlacement[]
+): void {
+  const epsilon = 0.0001;
+  const groups = new Map<string, DoorOpening[]>();
+
+  for (const opening of placements.map(getDoorOpeningFromPlacement)) {
+    const key = [
+      opening.axis,
+      opening.line.toFixed(4),
+      opening.placement.transition.wallStart.toFixed(4),
+      opening.placement.transition.wallEnd.toFixed(4)
+    ].join('|');
+    const group = groups.get(key) ?? [];
+    group.push(opening);
+    groups.set(key, group);
+  }
+
+  let frameId = 0;
+  for (const openings of groups.values()) {
+    const first = openings[0];
+    const wallStart = first.placement.transition.wallStart;
+    const wallEnd = first.placement.transition.wallEnd;
+    const sorted = openings
+      .map((opening) => ({
+        ...opening,
+        start: Math.max(opening.start, wallStart),
+        end: Math.min(opening.end, wallEnd)
+      }))
+      .filter((opening) => opening.end - opening.start > epsilon)
+      .sort((a, b) => a.start - b.start);
+
+    let cursor = wallStart;
+    for (const opening of sorted) {
+      if (opening.start > cursor + epsilon) {
+        replaceStructuralRangeWithFrame(
+          segments,
+          createFrameWallSegment(first.axis, first.line, cursor, opening.start, frameId)
+        );
+        frameId += 1;
+      }
+
+      cursor = Math.max(cursor, opening.end);
     }
 
-    if (doorEnd < transition.wallEnd) {
-      replaceStructuralRangeWithFrame(
-        segments,
-        frameHorizontalWall(`interior_door_${index}_right`, doorEnd, transition.wallEnd, transition.center.z)
-      );
+    for (const opening of sorted) {
+      clearStructuralWallRange(segments, opening.axis, opening.line, opening.start, opening.end);
     }
 
-    return;
+    if (cursor < wallEnd - epsilon) {
+      replaceStructuralRangeWithFrame(
+        segments,
+        createFrameWallSegment(first.axis, first.line, cursor, wallEnd, frameId)
+      );
+      frameId += 1;
+    }
+  }
+}
+
+function getDoorOpeningFromPlacement(placement: DoorTransitionPlacement): DoorOpening {
+  const { start, end } = getDoorOpeningRange(placement.transition);
+  const axis = Math.abs(Math.sin(placement.transition.rotationY)) < 0.5 ? 'x' : 'z';
+  return {
+    placement,
+    axis,
+    line: axis === 'x' ? placement.transition.center.z : placement.transition.center.x,
+    start,
+    end
+  };
+}
+
+function createFrameWallSegment(
+  axis: 'x' | 'z',
+  line: number,
+  start: number,
+  end: number,
+  index: number
+): DungeonWallSegment {
+  if (axis === 'x') {
+    return frameHorizontalWall(`interior_door_frame_${index}`, start, end, line);
   }
 
-  if (doorStart > transition.wallStart) {
-    replaceStructuralRangeWithFrame(
-      segments,
-      frameVerticalWall(`interior_door_${index}_bottom`, transition.center.x, transition.wallStart, doorStart)
-    );
-  }
-
-  if (doorEnd < transition.wallEnd) {
-    replaceStructuralRangeWithFrame(
-      segments,
-      frameVerticalWall(`interior_door_${index}_top`, transition.center.x, doorEnd, transition.wallEnd)
-    );
-  }
+  return frameVerticalWall(`interior_door_frame_${index}`, line, start, end);
 }
 
 function replaceStructuralRangeWithFrame(
@@ -1710,6 +1833,43 @@ function createStructuralWallSlice(
   }
 
   return verticalWall(`${segment.id}_${suffix}`, segment.line, start, end);
+}
+
+function clearStructuralWallRange(
+  segments: DungeonWallSegment[],
+  axis: 'x' | 'z',
+  line: number,
+  rangeStart: number,
+  rangeEnd: number
+): void {
+  const epsilon = 0.0001;
+
+  for (let index = 0; index < segments.length; index += 1) {
+    const candidate = segments[index];
+    if (!candidate.affectsJoins || candidate.axis !== axis || Math.abs(candidate.line - line) > epsilon) {
+      continue;
+    }
+
+    const candidateStart = getSegmentRangeStart(candidate);
+    const candidateEnd = getSegmentRangeEnd(candidate);
+    const overlapStart = Math.max(candidateStart, rangeStart);
+    const overlapEnd = Math.min(candidateEnd, rangeEnd);
+
+    if (overlapEnd - overlapStart <= epsilon) {
+      continue;
+    }
+
+    segments.splice(index, 1);
+    index -= 1;
+
+    if (candidateStart < overlapStart - epsilon) {
+      segments.push(createStructuralWallSlice(candidate, candidateStart, overlapStart, 'start'));
+    }
+
+    if (candidateEnd > overlapEnd + epsilon) {
+      segments.push(createStructuralWallSlice(candidate, overlapEnd, candidateEnd, 'end'));
+    }
+  }
 }
 
 function getSegmentRangeStart(segment: DungeonWallSegment): number {
