@@ -62,6 +62,11 @@ export const MODEL_REGISTRY = {
     scale: [1, 1, 1],
     rotation: [0, Math.PI, 0],
     placeOnGround: true
+  },
+  Lampe_Murale1: {
+    path: '/assets/models/meshy/WallMounted/Lampe_Murale1.glb',
+    scale: [0.15, 0.15, 0.15],
+    placeOnGround: false
   }
 } as const satisfies Record<string, ModelDefinition>;
 

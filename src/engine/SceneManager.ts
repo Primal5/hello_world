@@ -13,8 +13,8 @@ export class SceneManager {
   }
 
   private setupLights(): void {
-    const ambient = new THREE.AmbientLight(0xffffff, 0.45);
-    const sun = new THREE.DirectionalLight(0xffffff, 1);
+    const ambient = new THREE.AmbientLight(0xb8c6d8, 0.16);
+    const sun = new THREE.DirectionalLight(0xcdd6e2, 0.3);
     sun.position.set(5, 10, 5);
     sun.castShadow = ENABLE_SHADOWS;
     this.scene.add(ambient, sun);

@@ -9,9 +9,12 @@ import { CollisionWorld } from './CollisionWorld';
 import {
   DUNGEON_CONFIG,
   generateDungeonLayout,
+  getMirroredCorridorWorldBounds,
   getMirroredRoomWorldBounds,
+  type DungeonCorridorEdge,
   type DungeonDoorDefinition,
   type DungeonLayout,
+  type DungeonRoomNode,
   type DungeonWallSegment
 } from './DungeonGenerator';
 import { MODEL_REGISTRY, type ModelDefinition, type ModelKey } from './ModelRegistry';
@@ -32,11 +35,54 @@ interface HingedModelOptions {
   view: 'left' | 'right';
 }
 
+interface WallLampPlacement {
+  position: THREE.Vector3;
+  rotationY: number;
+  lightColor: string;
+  lightIntensity: number;
+}
+
+interface WallLampCandidate {
+  segmentId: string;
+  axis: 'x' | 'z';
+  line: number;
+  rangeStart: number;
+  rangeEnd: number;
+  positions: number[];
+  renderedCenter: THREE.Vector3;
+  renderedSize: THREE.Vector3;
+}
+
 const DOOR_MODEL_SIZE = {
   thickness: 0.21565186977386475,
   height: 2.000000298023224,
   width: 1.4043151140213013
 } as const;
+const WALL_LAMP_HEIGHT = 1.8;
+const WALL_LAMP_WALL_OFFSET = 0.1;
+const WALL_LAMP_SPACING = 6;
+const WALL_LAMP_DOOR_CLEARANCE = 1.5;
+const WALL_LAMP_DOOR_FINAL_GUARD_ALONG = 0.6;
+const WALL_LAMP_DOOR_FINAL_GUARD_NORMAL = 1.1;
+const WALL_LAMP_EDGE_MARGIN = 1;
+const WALL_LAMP_MIN_SECTION_LENGTH = 4;
+const CORRIDOR_DOUBLE_LAMP_LENGTH = 12;
+const WALL_LAMP_LIGHT_DISTANCE = 7;
+const WALL_LAMP_LIGHT_INTENSITY = 1.35;
+const SPAWN_WALL_LAMP_LIGHT_INTENSITY = 2.1;
+const SPAWN_WALL_LAMP_LIGHT_COLOR = '#9fd6ff';
+const WALL_LAMP_LIGHT_COLOR = '#ffde9a';
+const WALL_LAMP_LIGHT_NEAR_PLAYER_DISTANCE = 30;
+const WALL_LAMP_MAX_ACTIVE_LIGHTS = 6;
+const WALL_LAMP_LIGHT_FRONT_OFFSET = 0.01;
+const WALL_LAMP_LIGHT_UP_OFFSET = 0;
+const WALL_LAMP_LIGHT_REAR_CUTOFF_DOT = -0.15;
+const WALL_LAMP_LIGHT_REAR_KEEP_DISTANCE = 3;
+const WALL_LAMP_LIGHT_MIN_FORWARD_WEIGHT = 0.25;
+const CHEST_LIGHT_COLOR = '#ffd78b';
+const CHEST_LIGHT_INTENSITY = 0.45;
+const CHEST_LIGHT_DISTANCE = 3.25;
+const CHEST_LIGHT_HEIGHT_OFFSET = 0.3;
 const SPAWN_THRESHOLD_HEIGHT = 0.0225;
 const SPAWN_THRESHOLD_Y_OFFSET = 0.008;
 
@@ -45,9 +91,11 @@ export class LevelLoader {
   private readonly thresholdWoodTexture = this.createThresholdWoodTexture();
   private readonly animationMixers: THREE.AnimationMixer[] = [];
   private readonly animationUpdaters: Array<(delta: number) => void> = [];
+  private playerPosition?: THREE.Vector3;
 
   constructor(
     private readonly scene: THREE.Scene,
+    private readonly camera: THREE.Camera,
     private readonly assetLoader: AssetLoader,
     private readonly itemDb: ItemDatabase,
     private readonly dialogueSystem: DialogueSystem,
@@ -65,17 +113,20 @@ export class LevelLoader {
   }
 
   async load(context: InteractionContext): Promise<Interactable[]> {
+    this.playerPosition = context.player.position;
     const layout = generateDungeonLayout();
     this.collisionWorld.setCeiling(DUNGEON_CONFIG.ceilingY);
 
     await this.addDungeonShell(layout);
     this.addWalls(layout.wallSegments);
+    await this.addWallLamps(layout);
 
     const interactables: Interactable[] = [];
 
     for (const chestDefinition of layout.chests) {
       const chest = await this.loadWithFallback('chest');
       this.placeObject(chest, chestDefinition.position);
+      const chestLight = this.addChestLight(chest);
       this.scene.add(chest);
 
       let chestOpened = false;
@@ -91,6 +142,9 @@ export class LevelLoader {
           }
 
           chestOpened = true;
+          if (chestLight) {
+            chestLight.visible = false;
+          }
           const item = this.itemDb.getById(chestDefinition.itemId);
           if (item && context.player.inventory.add(item.id)) {
             const message = DISPLAY_TEXT.world.chest.obtainedItem(item.name);
@@ -308,6 +362,7 @@ export class LevelLoader {
       spawnVariation.receiveShadow = ENABLE_SHADOWS;
       spawnVariation.renderOrder = 3;
       this.scene.add(spawnVariation);
+
     }
 
     const spawnEntranceDoor = layout.doors.find((door) => door.entrance);
@@ -344,6 +399,529 @@ export class LevelLoader {
     threshold.receiveShadow = ENABLE_SHADOWS;
     threshold.renderOrder = 4;
     this.scene.add(threshold);
+  }
+
+  private async addWallLamps(layout: DungeonLayout): Promise<void> {
+    const behaviors = this.resolveWallBehaviors(layout.wallSegments);
+    const candidates = this.getWallLampCandidates(layout.wallSegments, layout.doors, behaviors);
+    const roomPlacements = this.selectRoomWallLampPlacements(layout.graph.rooms, candidates);
+    const roomById = new Map(layout.graph.rooms.map((room) => [room.id, room]));
+    const corridorPlacements = this.selectCorridorWallLampPlacements(layout.graph.corridors, roomById, candidates);
+    const placements = this.filterLampPlacementsNearDoors(
+      this.flattenUniqueLampPlacements([...roomPlacements, ...corridorPlacements]),
+      layout.doors
+    );
+
+    const lampLightSources: Array<{
+      position: THREE.Vector3;
+      lightColor: string;
+      lightIntensity: number;
+    }> = [];
+
+    for (const placement of placements) {
+      const lamp = await this.loadWithFallback('Lampe_Murale1');
+      lamp.rotation.y = placement.rotationY;
+      lamp.position.copy(placement.position);
+      lamp.updateMatrixWorld(true);
+      const lightWorldPosition = this.getLampLightWorldPosition(lamp, placement.rotationY);
+      lampLightSources.push({
+        position: lightWorldPosition,
+        lightColor: placement.lightColor,
+        lightIntensity: placement.lightIntensity
+      });
+      this.scene.add(lamp);
+    }
+
+    const lightPool = Array.from({ length: WALL_LAMP_MAX_ACTIVE_LIGHTS }, () => {
+      const light = new THREE.PointLight(WALL_LAMP_LIGHT_COLOR, WALL_LAMP_LIGHT_INTENSITY, WALL_LAMP_LIGHT_DISTANCE, 2);
+      light.castShadow = false;
+      light.visible = false;
+      this.scene.add(light);
+      return light;
+    });
+    const activationDistanceSq = WALL_LAMP_LIGHT_NEAR_PLAYER_DISTANCE * WALL_LAMP_LIGHT_NEAR_PLAYER_DISTANCE;
+    const rearKeepDistanceSq = WALL_LAMP_LIGHT_REAR_KEEP_DISTANCE * WALL_LAMP_LIGHT_REAR_KEEP_DISTANCE;
+    const cameraPosition = new THREE.Vector3();
+    const cameraForward = new THREE.Vector3();
+    const toLight = new THREE.Vector3();
+    this.animationUpdaters.push(() => {
+      const playerPosition = this.playerPosition;
+      if (!playerPosition) {
+        return;
+      }
+
+      this.camera.getWorldPosition(cameraPosition);
+      this.camera.getWorldDirection(cameraForward);
+
+      const nearestLights: Array<{
+        position: THREE.Vector3;
+        score: number;
+        lightColor: string;
+        lightIntensity: number;
+      }> = [];
+      for (const source of lampLightSources) {
+        const distanceSq = source.position.distanceToSquared(playerPosition);
+        if (distanceSq > activationDistanceSq) {
+          continue;
+        }
+
+        toLight.copy(source.position).sub(cameraPosition);
+        const cameraDistanceSq = toLight.lengthSq();
+        if (cameraDistanceSq <= 0.0001) {
+          continue;
+        }
+
+        const facingDot = toLight.normalize().dot(cameraForward);
+        if (facingDot < WALL_LAMP_LIGHT_REAR_CUTOFF_DOT && cameraDistanceSq > rearKeepDistanceSq) {
+          continue;
+        }
+
+        const forwardWeight = Math.max(facingDot, WALL_LAMP_LIGHT_MIN_FORWARD_WEIGHT);
+        const score = cameraDistanceSq / forwardWeight;
+
+        let insertAt = nearestLights.length;
+        while (insertAt > 0 && score < nearestLights[insertAt - 1].score) {
+          insertAt -= 1;
+        }
+
+        if (insertAt >= WALL_LAMP_MAX_ACTIVE_LIGHTS) {
+          continue;
+        }
+
+        nearestLights.splice(insertAt, 0, {
+          position: source.position,
+          score,
+          lightColor: source.lightColor,
+          lightIntensity: source.lightIntensity
+        });
+        if (nearestLights.length > WALL_LAMP_MAX_ACTIVE_LIGHTS) {
+          nearestLights.pop();
+        }
+      }
+
+      for (let index = 0; index < lightPool.length; index += 1) {
+        const light = lightPool[index];
+        const nearest = nearestLights[index];
+        if (!nearest) {
+          light.visible = false;
+          continue;
+        }
+
+        light.visible = true;
+        light.position.copy(nearest.position);
+        light.color.set(nearest.lightColor);
+        light.intensity = nearest.lightIntensity;
+      }
+    });
+  }
+
+  private getWallLampCandidates(
+    wallSegments: DungeonWallSegment[],
+    doors: DungeonDoorDefinition[],
+    behaviors: Map<string, WallEndBehavior>
+  ): WallLampCandidate[] {
+    const candidates: WallLampCandidate[] = [];
+
+    for (const segment of wallSegments) {
+      if (!segment.affectsJoins || segment.id.includes('_lintel') || segment.id.includes('door_frame')) {
+        continue;
+      }
+
+      if (segment.height < WALL_LAMP_HEIGHT + 0.2) {
+        continue;
+      }
+
+      const behavior = behaviors.get(segment.id) ?? {
+        trimStart: false,
+        trimEnd: false,
+        extendStart: false,
+        extendEnd: false
+      };
+      const rendered = this.getRenderedWall(segment, behavior);
+      const rangeStart = segment.axis === 'x'
+        ? rendered.center.x - rendered.size.x / 2
+        : rendered.center.z - rendered.size.z / 2;
+      const rangeEnd = segment.axis === 'x'
+        ? rendered.center.x + rendered.size.x / 2
+        : rendered.center.z + rendered.size.z / 2;
+      const doorIntervals = doors
+        .filter((door) => this.isDoorOnWallSegment(door, rendered, segment.axis))
+        .map((door) => {
+          const center = segment.axis === 'x' ? door.center.x : door.center.z;
+          const halfWidth = door.width / 2 + WALL_LAMP_DOOR_CLEARANCE;
+          return {
+            start: center - halfWidth,
+            end: center + halfWidth
+          };
+        });
+      const sections = this.subtractIntervals(
+        {
+          start: rangeStart + WALL_LAMP_EDGE_MARGIN,
+          end: rangeEnd - WALL_LAMP_EDGE_MARGIN
+        },
+        doorIntervals
+      );
+
+      for (const section of sections) {
+        const positions = this.getEvenlyDistributedLampPositions(section.start, section.end);
+        if (positions.length === 0) {
+          continue;
+        }
+
+        candidates.push({
+          segmentId: `${segment.id}:${section.start.toFixed(3)}:${section.end.toFixed(3)}`,
+          axis: segment.axis,
+          line: segment.axis === 'x' ? rendered.center.z : rendered.center.x,
+          rangeStart: section.start,
+          rangeEnd: section.end,
+          positions,
+          renderedCenter: rendered.center,
+          renderedSize: rendered.size
+        });
+      }
+    }
+
+    return candidates;
+  }
+
+  private selectRoomWallLampPlacements(
+    rooms: DungeonRoomNode[],
+    candidates: WallLampCandidate[]
+  ): WallLampPlacement[] {
+    const selectedPlacements: WallLampPlacement[] = [];
+
+    for (const room of rooms) {
+      const roomBounds = getMirroredRoomWorldBounds(room);
+      const roomCandidates = candidates.filter((candidate) =>
+        this.isLampCandidateOnRoomBoundary(candidate, roomBounds)
+      );
+
+      if (roomCandidates.length === 0) {
+        continue;
+      }
+
+      const shuffledCandidates = this.shuffleArray(roomCandidates.slice());
+      const selectedCount = THREE.MathUtils.randInt(1, shuffledCandidates.length);
+      const isSpawnRoom = room.type === 'spawn';
+      for (const candidate of shuffledCandidates.slice(0, selectedCount)) {
+        selectedPlacements.push(...this.createLampPlacementsForBounds(candidate, roomBounds, {
+          lightColor: isSpawnRoom ? SPAWN_WALL_LAMP_LIGHT_COLOR : WALL_LAMP_LIGHT_COLOR,
+          lightIntensity: isSpawnRoom ? SPAWN_WALL_LAMP_LIGHT_INTENSITY : WALL_LAMP_LIGHT_INTENSITY
+        }));
+      }
+    }
+
+    return selectedPlacements;
+  }
+
+  private selectCorridorWallLampPlacements(
+    corridors: DungeonCorridorEdge[],
+    roomById: Map<string, DungeonRoomNode>,
+    candidates: WallLampCandidate[]
+  ): WallLampPlacement[] {
+    const selectedPlacements: WallLampPlacement[] = [];
+
+    for (const corridor of corridors) {
+      const fromRoom = roomById.get(corridor.from);
+      const toRoom = roomById.get(corridor.to);
+      if (!fromRoom || !toRoom) {
+        continue;
+      }
+
+      const corridorBounds = getMirroredCorridorWorldBounds(fromRoom, toRoom, corridor);
+      const corridorCandidates = candidates.filter((candidate) =>
+        this.isLampCandidateOnCorridorBoundary(candidate, corridorBounds)
+      );
+      if (corridorCandidates.length === 0) {
+        continue;
+      }
+
+      const corridorLength = corridor.axis === 'x'
+        ? corridorBounds.xMax - corridorBounds.xMin
+        : corridorBounds.zMax - corridorBounds.zMin;
+      const targetCount = corridorLength >= CORRIDOR_DOUBLE_LAMP_LENGTH ? 2 : 1;
+      const shuffledCandidates = this.shuffleArray(corridorCandidates.slice());
+      for (const candidate of shuffledCandidates.slice(0, Math.min(targetCount, shuffledCandidates.length))) {
+        selectedPlacements.push(...this.createLampPlacementsForBounds(candidate, corridorBounds, {
+          lightColor: WALL_LAMP_LIGHT_COLOR,
+          lightIntensity: WALL_LAMP_LIGHT_INTENSITY
+        }));
+      }
+    }
+
+    return selectedPlacements;
+  }
+
+  private createLampPlacementsForBounds(
+    candidate: WallLampCandidate,
+    bounds: { xMin: number; xMax: number; zMin: number; zMax: number },
+    lightStyle: { lightColor: string; lightIntensity: number }
+  ): WallLampPlacement[] {
+    const face = this.getWallLampFaceForBounds(candidate, bounds);
+    if (!face) {
+      return [];
+    }
+
+    return candidate.positions.map((position) => ({
+      position: candidate.axis === 'x'
+        ? new THREE.Vector3(position, WALL_LAMP_HEIGHT, candidate.renderedCenter.z + face.offset)
+        : new THREE.Vector3(candidate.renderedCenter.x + face.offset, WALL_LAMP_HEIGHT, position),
+      rotationY: face.rotationY,
+      lightColor: lightStyle.lightColor,
+      lightIntensity: lightStyle.lightIntensity
+    }));
+  }
+
+  private getLampLightWorldPosition(lamp: THREE.Object3D, rotationY: number): THREE.Vector3 {
+    const box = new THREE.Box3().setFromObject(lamp);
+    const size = box.getSize(new THREE.Vector3());
+    const anchor = lamp.getWorldPosition(new THREE.Vector3());
+    const forward = new THREE.Vector3(Math.sin(rotationY), 0, Math.cos(rotationY));
+    const halfDepthAlongForward =
+      Math.abs(forward.x) * size.x * 0.5 +
+      Math.abs(forward.z) * size.z * 0.5;
+    const forwardDistance = halfDepthAlongForward * 0.55 + WALL_LAMP_LIGHT_FRONT_OFFSET;
+
+    return anchor.add(new THREE.Vector3(
+      forward.x * forwardDistance,
+      size.y * 0.38 + WALL_LAMP_LIGHT_UP_OFFSET,
+      forward.z * forwardDistance
+    ));
+  }
+
+  private addChestLight(chest: THREE.Object3D): THREE.PointLight | null {
+    chest.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(chest);
+    if (box.isEmpty()) {
+      return null;
+    }
+
+    const center = box.getCenter(new THREE.Vector3());
+    const lightWorldPosition = new THREE.Vector3(
+      center.x,
+      box.max.y + CHEST_LIGHT_HEIGHT_OFFSET,
+      center.z
+    );
+    const light = new THREE.PointLight(CHEST_LIGHT_COLOR, CHEST_LIGHT_INTENSITY, CHEST_LIGHT_DISTANCE, 2);
+    light.castShadow = false;
+    light.position.copy(chest.worldToLocal(lightWorldPosition));
+    chest.add(light);
+    return light;
+  }
+
+  private flattenUniqueLampPlacements(placements: WallLampPlacement[]): WallLampPlacement[] {
+    const uniquePlacements = new Map<string, WallLampPlacement>();
+    for (const placement of placements) {
+      const key = [
+        placement.position.x.toFixed(3),
+        placement.position.y.toFixed(3),
+        placement.position.z.toFixed(3),
+        placement.rotationY.toFixed(3)
+      ].join('|');
+      uniquePlacements.set(key, placement);
+    }
+
+    return Array.from(uniquePlacements.values());
+  }
+
+  private filterLampPlacementsNearDoors(
+    placements: WallLampPlacement[],
+    doors: DungeonDoorDefinition[]
+  ): WallLampPlacement[] {
+    return placements.filter((placement) => !doors.some((door) => this.isLampPlacementTooCloseToDoor(placement, door)));
+  }
+
+  private isLampPlacementTooCloseToDoor(
+    placement: WallLampPlacement,
+    door: DungeonDoorDefinition
+  ): boolean {
+    const offset = placement.position.clone().sub(door.center);
+    const tangent = new THREE.Vector3(Math.cos(door.rotationY), 0, -Math.sin(door.rotationY));
+    const normal = new THREE.Vector3(Math.sin(door.rotationY), 0, Math.cos(door.rotationY));
+    const along = Math.abs(offset.dot(tangent));
+    const across = Math.abs(offset.dot(normal));
+
+    return (
+      along <= door.width / 2 + WALL_LAMP_DOOR_FINAL_GUARD_ALONG &&
+      across <= door.depth / 2 + WALL_LAMP_DOOR_FINAL_GUARD_NORMAL
+    );
+  }
+
+  private isLampCandidateOnRoomBoundary(
+    candidate: WallLampCandidate,
+    roomBounds: { xMin: number; xMax: number; zMin: number; zMax: number }
+  ): boolean {
+    const lineTolerance = 0.35;
+    const overlapTolerance = 0.01;
+
+    if (candidate.axis === 'x') {
+      const onNorthWall = Math.abs(candidate.line - roomBounds.zMin) <= lineTolerance;
+      const onSouthWall = Math.abs(candidate.line - roomBounds.zMax) <= lineTolerance;
+      if (!onNorthWall && !onSouthWall) {
+        return false;
+      }
+
+      const overlapStart = Math.max(candidate.rangeStart, roomBounds.xMin);
+      const overlapEnd = Math.min(candidate.rangeEnd, roomBounds.xMax);
+      return overlapEnd - overlapStart > overlapTolerance;
+    }
+
+    const onWestWall = Math.abs(candidate.line - roomBounds.xMin) <= lineTolerance;
+    const onEastWall = Math.abs(candidate.line - roomBounds.xMax) <= lineTolerance;
+    if (!onWestWall && !onEastWall) {
+      return false;
+    }
+
+    const overlapStart = Math.max(candidate.rangeStart, roomBounds.zMin);
+    const overlapEnd = Math.min(candidate.rangeEnd, roomBounds.zMax);
+    return overlapEnd - overlapStart > overlapTolerance;
+  }
+
+  private isLampCandidateOnCorridorBoundary(
+    candidate: WallLampCandidate,
+    corridorBounds: { xMin: number; xMax: number; zMin: number; zMax: number }
+  ): boolean {
+    const lineTolerance = 0.35;
+    const overlapTolerance = 0.01;
+
+    if (candidate.axis === 'x') {
+      const onNorthWall = Math.abs(candidate.line - corridorBounds.zMin) <= lineTolerance;
+      const onSouthWall = Math.abs(candidate.line - corridorBounds.zMax) <= lineTolerance;
+      if (!onNorthWall && !onSouthWall) {
+        return false;
+      }
+
+      const overlapStart = Math.max(candidate.rangeStart, corridorBounds.xMin);
+      const overlapEnd = Math.min(candidate.rangeEnd, corridorBounds.xMax);
+      return overlapEnd - overlapStart > overlapTolerance;
+    }
+
+    const onWestWall = Math.abs(candidate.line - corridorBounds.xMin) <= lineTolerance;
+    const onEastWall = Math.abs(candidate.line - corridorBounds.xMax) <= lineTolerance;
+    if (!onWestWall && !onEastWall) {
+      return false;
+    }
+
+    const overlapStart = Math.max(candidate.rangeStart, corridorBounds.zMin);
+    const overlapEnd = Math.min(candidate.rangeEnd, corridorBounds.zMax);
+    return overlapEnd - overlapStart > overlapTolerance;
+  }
+
+  private getWallLampFaceForBounds(
+    candidate: WallLampCandidate,
+    bounds: { xMin: number; xMax: number; zMin: number; zMax: number }
+  ): { offset: number; rotationY: number } | null {
+    const lineTolerance = 0.35;
+
+    if (candidate.axis === 'x') {
+      if (Math.abs(candidate.line - bounds.zMin) <= lineTolerance) {
+        return {
+          offset: candidate.renderedSize.z / 2 + WALL_LAMP_WALL_OFFSET,
+          rotationY: 0
+        };
+      }
+
+      if (Math.abs(candidate.line - bounds.zMax) <= lineTolerance) {
+        return {
+          offset: -(candidate.renderedSize.z / 2 + WALL_LAMP_WALL_OFFSET),
+          rotationY: Math.PI
+        };
+      }
+
+      return null;
+    }
+
+    if (Math.abs(candidate.line - bounds.xMin) <= lineTolerance) {
+      return {
+        offset: candidate.renderedSize.x / 2 + WALL_LAMP_WALL_OFFSET,
+        rotationY: Math.PI / 2
+      };
+    }
+
+    if (Math.abs(candidate.line - bounds.xMax) <= lineTolerance) {
+      return {
+        offset: -(candidate.renderedSize.x / 2 + WALL_LAMP_WALL_OFFSET),
+        rotationY: -Math.PI / 2
+      };
+    }
+
+    return null;
+  }
+
+  private isDoorOnWallSegment(
+    door: DungeonDoorDefinition,
+    rendered: { center: THREE.Vector3; size: THREE.Vector3 },
+    axis: 'x' | 'z'
+  ): boolean {
+    const tolerance = Math.max(door.depth, axis === 'x' ? rendered.size.z : rendered.size.x) + 0.25;
+
+    if (axis === 'x') {
+      return (
+        Math.abs(door.center.z - rendered.center.z) <= tolerance &&
+        door.center.x >= rendered.center.x - rendered.size.x / 2 - door.width &&
+        door.center.x <= rendered.center.x + rendered.size.x / 2 + door.width
+      );
+    }
+
+    return (
+      Math.abs(door.center.x - rendered.center.x) <= tolerance &&
+      door.center.z >= rendered.center.z - rendered.size.z / 2 - door.width &&
+      door.center.z <= rendered.center.z + rendered.size.z / 2 + door.width
+    );
+  }
+
+  private subtractIntervals(
+    source: { start: number; end: number },
+    blocked: Array<{ start: number; end: number }>
+  ): Array<{ start: number; end: number }> {
+    const sorted = blocked
+      .map((interval) => ({
+        start: Math.max(source.start, interval.start),
+        end: Math.min(source.end, interval.end)
+      }))
+      .filter((interval) => interval.end > interval.start)
+      .sort((left, right) => left.start - right.start);
+
+    const sections: Array<{ start: number; end: number }> = [];
+    let cursor = source.start;
+
+    for (const interval of sorted) {
+      if (interval.start > cursor) {
+        sections.push({ start: cursor, end: interval.start });
+      }
+      cursor = Math.max(cursor, interval.end);
+    }
+
+    if (cursor < source.end) {
+      sections.push({ start: cursor, end: source.end });
+    }
+
+    return sections.filter((section) => section.end - section.start >= WALL_LAMP_MIN_SECTION_LENGTH);
+  }
+
+  private getEvenlyDistributedLampPositions(start: number, end: number): number[] {
+    const length = end - start;
+    if (length < WALL_LAMP_MIN_SECTION_LENGTH) {
+      return [];
+    }
+
+    const lampCount = Math.max(1, Math.floor(length / WALL_LAMP_SPACING));
+    const positions: number[] = [];
+    for (let index = 1; index <= lampCount; index += 1) {
+      const t = index / (lampCount + 1);
+      positions.push(THREE.MathUtils.lerp(start, end, t));
+    }
+    return positions;
+  }
+
+  private shuffleArray<T>(items: T[]): T[] {
+    for (let index = items.length - 1; index > 0; index -= 1) {
+      const swapIndex = THREE.MathUtils.randInt(0, index);
+      const current = items[index];
+      items[index] = items[swapIndex];
+      items[swapIndex] = current;
+    }
+    return items;
   }
 
   private createThresholdWoodMaterial(size: THREE.Vector2): THREE.MeshStandardMaterial[] {

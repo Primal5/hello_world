@@ -1101,6 +1101,20 @@ export function getMirroredRoomWorldBounds(room: DungeonRoomNode): RoomWorldBoun
   };
 }
 
+export function getMirroredCorridorWorldBounds(
+  fromRoom: DungeonRoomNode,
+  toRoom: DungeonRoomNode,
+  corridor: DungeonCorridorEdge
+): RoomWorldBounds {
+  const bounds = getCorridorRect(fromRoom, toRoom, corridor);
+  return {
+    xMin: bounds.xMin,
+    xMax: bounds.xMax,
+    zMin: -bounds.zMax,
+    zMax: -bounds.zMin
+  };
+}
+
 function isInsideRoomBounds(position: THREE.Vector3, bounds: RoomWorldBounds, margin: number): boolean {
   return position.x >= bounds.xMin + margin
     && position.x <= bounds.xMax - margin

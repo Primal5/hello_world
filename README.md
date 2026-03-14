@@ -182,6 +182,24 @@ Base prête pour ajouter:
 - Le sol garde un matériau PBR avec repeat, anisotropy et variation macro.
 - Le motif floral procédural est réservé à `Dalles_Jade` et n’est plus injecté dans le sol global.
 
+### Règle de placement des lampes murales
+
+- Les lampes murales se placent uniquement sur des pans de mur libres, jamais à proximité immédiate d’une porte.
+- Une zone de sécurité doit être réservée autour de chaque porte avant tout placement de lampe.
+- Le mur est découpé en sections libres entre portes, angles et obstacles réservés.
+- Pour une section libre courte, on place une seule lampe centrée sur la section.
+- Pour une section plus longue, le nombre de lampes dépend directement de la longueur disponible, sur une base d’environ **1 lampe tous les 6 mètres**.
+- Chaque pièce conserve au moins un pan de mur éclairé dès qu’un mur éligible existe.
+- D’une pièce à l’autre, le nombre de murs effectivement éclairés varie de manière aléatoire parmi les pans de murs éligibles.
+- Les couloirs reçoivent eux aussi des lampes:
+  - en général `1` lampe sur un couloir court
+  - jusqu’à `2` lampes sur un couloir plus long
+- Quand plusieurs lampes sont retenues sur une même section, elles sont réparties uniformément:
+  - 2 lampes: positions à `1/3` et `2/3`
+  - 3 lampes: positions à `1/4`, `2/4`, `3/4`
+  - et ainsi de suite
+- Si une section n’est pas assez longue pour accueillir une lampe avec ses marges, on n’en place aucune.
+
 ### Objets utilisables (objets)
 
 > État actuel des données :
